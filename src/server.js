@@ -13,8 +13,9 @@ const Database = require('./database');
 let AdsPowerClient = null;
 try {
   AdsPowerClient = require('./adspower-client.js');
+  console.log('✅ AdsPower client loaded successfully');
 } catch (e) {
-  console.log('AdsPower client not available (optional dependency)');
+  console.log('⚠️  AdsPower client not available:', e.message);
 }
 const SellerResearch = require('./seller-research');
 const OutreachEngine = require('./outreach-engine');
