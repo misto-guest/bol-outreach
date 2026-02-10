@@ -219,6 +219,7 @@ App.Pages.templates = {
             } catch (error) {
                 App.Utils.hideLoading();
                 console.error('Failed to create template:', error);
+                App.Utils.showToast('Failed to create template: ' + (error.message || 'Unknown error'), 'error');
             }
         });
     },
@@ -290,6 +291,7 @@ App.Pages.templates = {
                 } catch (error) {
                     App.Utils.hideLoading();
                     console.error('Failed to update template:', error);
+                    App.Utils.showToast('Failed to update template: ' + (error.message || 'Unknown error'), 'error');
                 }
             });
         } catch (error) {
