@@ -448,6 +448,82 @@ app.post('/api/approvals/:id/reject', async (req, res) => {
   }
 });
 
+// Add sellers to campaign (create outreach records)
+app.post('/api/campaigns/:id/sellers', async (req, res) => {
+  try {
+    const { sellerIds, approvalStatus = 'pending' } = req.body;
+    const campaignId = req.params.id;
+
+    if (!sellerIds || !Array.isArray(sellerIds) || sellerIds.length === 0) {
+      return res.status(400).json({ success: false, error: 'No seller IDs provided' });
+    }
+
+    // Verify campaign exists
+    const campaign = await db.get('SELECT * FROM campaigns WHERE id = ?', [campaignId]);
+    if (!campaign) {
+      return res.status(404).json({ success: false, error: 'Campaign not found' });
+    }
+
+    // Get template to generate message
+    let messageContent = 'Test message';
+    if (campaign.message_template_id) {
+      const template = await db.get('SELECT * FROM message_templates WHERE id = ?', [campaign.message_template_id]);
+      if (template) {
+        messageContent = `Subject: ${template.subject || 'No subject'}\n\n${template.body}`;
+      }
+    }
+
+    // Add outreach records for each seller
+    const results = [];
+    for (const sellerId of sellerIds) {
+      try {
+        // Verify seller exists
+        const seller = await db.get('SELECT * FROM sellers WHERE id = ?', [sellerId]);
+        if (!seller) {
+          results.push({ sellerId, success: false, error: 'Seller not found' });
+          continue;
+        }
+
+        // Create personalized message
+        let personalizedMessage = messageContent;
+        if (seller.shop_name) {
+          personalizedMessage = personalizedMessage.replace(/\{\{shop_name\}\}/g, seller.shop_name);
+        }
+        if (seller.company_name) {
+          personalizedMessage = personalizedMessage.replace(/\{\{company_name\}\}/g, seller.company_name || seller.shop_name);
+        }
+        if (seller.rating) {
+          personalizedMessage = personalizedMessage.replace(/\{\{rating\}\}/g, seller.rating);
+        }
+
+        const result = await db.run(`
+          INSERT INTO outreach_log (seller_id, campaign_id, status, approval_status, message_sent)
+          VALUES (?, ?, ?, ?, ?)
+        `, [sellerId, campaignId, 'pending', approvalStatus, personalizedMessage]);
+
+        results.push({ sellerId, success: true, id: result.id });
+      } catch (error) {
+        results.push({ sellerId, success: false, error: error.message });
+      }
+    }
+
+    const successCount = results.filter(r => r.success).length;
+    
+    await db.logAudit('sellers_added_to_campaign', 'campaign', campaignId, 'system', { 
+      count: successCount, 
+      total: sellerIds.length 
+    });
+
+    res.json({ 
+      success: true, 
+      message: `Added ${successCount}/${sellerIds.length} sellers to campaign`,
+      data: results 
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // ==================== AdsPower ====================
 
 // Get AdsPower profiles - Enhanced
