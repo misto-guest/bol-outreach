@@ -9,6 +9,7 @@ class OutreachEngine {
         this.adspower = adspowerClient;
         this.isRunning = false;
         this.shouldStop = false;
+        this.testMode = process.env.TEST_MODE === 'true' || process.env.NODE_ENV === 'test';
     }
 
     /**
@@ -90,6 +91,41 @@ class OutreachEngine {
      */
     async sendMessage(message) {
         try {
+            // TEST MODE: Simulate message sending without actual browser automation
+            if (this.testMode) {
+                console.log(`[TEST MODE] Simulating message send to ${message.shop_name}`);
+                
+                // Simulate processing delay
+                await this.delay(1000 + Math.random() * 2000);
+                
+                // Update outreach log
+                await this.db.run(
+                    `UPDATE outreach_log SET status = 'sent', contacted_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                    [message.id]
+                );
+
+                // Update seller status
+                await this.db.run(
+                    `UPDATE sellers SET status = 'contacted', last_checked_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                    [message.seller_id]
+                );
+
+                // Update campaign total
+                await this.db.run(
+                    `UPDATE campaigns SET total_sent = total_sent + 1 WHERE id = ?`,
+                    [message.campaign_id]
+                );
+
+                // Log audit
+                await this.db.logAudit('message_sent', 'outreach_log', message.id, 'system', {
+                    seller: message.shop_name,
+                    test_mode: true
+                });
+
+                console.log(`✓ [TEST] Message sent to ${message.shop_name}`);
+                return true;
+            }
+
             // Get available AdsPower profile
             const profile = await this.getAvailableProfile();
             if (!profile) {
