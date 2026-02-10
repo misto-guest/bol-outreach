@@ -11,9 +11,9 @@ const { URL } = require('url');
 
 class AdsPowerClient {
   constructor() {
-    this.endpoint = process.env.ADSPOWER_API_ENDPOINT || 'http://127.0.0.1:50325';
-    this.apiKey = process.env.ADSPOWER_API_KEY || '';
-    this.ngrokUrl = process.env.ADSPOWER_NGROK_URL || '';
+    this.endpoint = process.env.ADPOWER_API_ENDPOINT || 'http://127.0.0.1:50325';
+    this.apiKey = process.env.ADPOWER_API_KEY || '';
+    this.ngrokUrl = process.env.ADPOWER_NGROK_URL || '';
     this.timeout = 10000; // 10 seconds
   }
 
