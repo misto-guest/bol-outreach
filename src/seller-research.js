@@ -1,20 +1,24 @@
 /**
- * Seller Research Module
+ * Seller Research Module - Enhanced
  * Discovers and extracts seller information from Bol.com
+ * Features: AdsPower integration, fixed pagination, better error handling
  */
 
 const puppeteer = require('puppeteer');
 
 class SellerResearch {
-    constructor(database) {
+    constructor(database, adspowerClient = null) {
         this.db = database;
+        this.adspower = adspowerClient;
         this.baseUrl = 'https://www.bol.com';
         this.isRunning = false;
         this.shouldStop = false;
+        this.useAdsPower = !!adspowerClient;
     }
 
     /**
      * Start seller discovery for keywords
+     * Enhanced with pagination fix and better seller extraction
      */
     async discoverByKeywords(keywords, options = {}) {
         const {
@@ -22,7 +26,8 @@ class SellerResearch {
             extractSellers = true,
             saveToDb = true,
             deepSearch = false,
-            onProgress = null
+            onProgress = null,
+            useAdsPowerProfile = null
         } = options;
 
         this.isRunning = true;
@@ -31,168 +36,332 @@ class SellerResearch {
         const results = {
             totalFound: 0,
             sellers: [],
-            keywords: keywords
+            keywords: keywords,
+            errors: []
         };
 
-        const browser = await puppeteer.launch({
-            headless: true,
-            defaultViewport: { width: 1920, height: 1080 }
-        });
+        let browser, page;
 
         try {
-            const page = await browser.newPage();
+            // Launch browser (using AdsPower if available)
+            if (this.useAdsPower && useAdsPowerProfile) {
+                const adspowerResult = await this.adspower.startProfile(useAdsPowerProfile, {
+                    headless: false
+                });
+                
+                if (adspowerResult && adspowerResult.ws) {
+                    // Connect to existing AdsPower browser
+                    browser = await puppeteer.connect({
+                        browserWSEndpoint: adspowerResult.ws.puppeteer
+                    });
+                    page = (await browser.pages())[0] || await browser.newPage();
+                    console.log(`Connected to AdsPower profile: ${useAdsPowerProfile}`);
+                } else {
+                    throw new Error('Failed to connect to AdsPower profile');
+                }
+            } else {
+                // Launch regular browser
+                browser = await puppeteer.launch({
+                    headless: true,
+                    defaultViewport: { width: 1920, height: 1080 },
+                    args: [
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-blink-features=AutomationControlled'
+                    ]
+                });
+                page = await browser.newPage();
+            }
+
+            // Set realistic user agent
             await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+            
+            // Set extra headers to avoid detection
+            await page.setExtraHTTPHeaders({
+                'Accept-Language': 'nl-NL,nl;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1'
+            });
 
             // Handle cookie consent
             await this.handleCookieConsent(page);
 
+            // Process each keyword
             for (let i = 0; i < keywords.length; i++) {
                 if (this.shouldStop) break;
 
                 const keyword = keywords[i];
+                console.log(`\n[${i + 1}/${keywords.length}] Processing keyword: "${keyword}"`);
 
                 if (onProgress) {
                     onProgress({
                         current: i + 1,
                         total: keywords.length,
                         keyword: keyword,
-                        found: results.totalFound
+                        found: results.totalFound,
+                        status: 'searching'
                     });
                 }
 
                 try {
-                    const sellers = await this.searchForKeyword(page, keyword, maxResults, deepSearch);
+                    const sellers = await this.searchForKeyword(page, keyword, maxResults, deepSearch, onProgress);
 
                     for (const seller of sellers) {
-                        if (extractSellers) {
-                            await this.enrichSellerInfo(page, seller);
-                        }
+                        if (this.shouldStop) break;
 
-                        if (saveToDb) {
-                            await this.saveSeller(seller);
-                        }
+                        try {
+                            if (extractSellers) {
+                                await this.enrichSellerInfo(page, seller);
+                            }
 
-                        results.sellers.push(seller);
-                        results.totalFound++;
+                            if (saveToDb) {
+                                await this.saveSeller(seller);
+                            }
+
+                            results.sellers.push(seller);
+                            results.totalFound++;
+
+                            if (onProgress) {
+                                onProgress({
+                                    current: i + 1,
+                                    total: keywords.length,
+                                    keyword: keyword,
+                                    found: results.totalFound,
+                                    seller: seller.shop_name,
+                                    status: 'found'
+                                });
+                            }
+                        } catch (sellerError) {
+                            console.error(`Error processing seller "${seller.shop_name}":`, sellerError.message);
+                            results.errors.push({ seller: seller.shop_name, error: sellerError.message });
+                        }
                     }
                 } catch (error) {
                     console.error(`Error processing keyword "${keyword}":`, error.message);
+                    results.errors.push({ keyword, error: error.message });
+                }
+
+                // Add delay between keywords to avoid rate limiting
+                if (i < keywords.length - 1 && !this.shouldStop) {
+                    await this.randomDelay(2000, 4000);
                 }
             }
 
-            await browser.close();
         } catch (error) {
-            await browser.close();
+            console.error('Fatal error during research:', error);
+            results.errors.push({ fatal: error.message });
             throw error;
         } finally {
+            // Close browser if we launched it (not AdsPower)
+            if (browser && !this.useAdsPower) {
+                await browser.close();
+            } else if (browser && this.useAdsPower && useAdsPowerProfile) {
+                // Don't close AdsPower browser, just disconnect
+                await browser.disconnect();
+                console.log('Disconnected from AdsPower profile');
+            }
+            
             this.isRunning = false;
         }
 
+        console.log(`\n✅ Research completed: ${results.totalFound} sellers found, ${results.errors.length} errors`);
         return results;
     }
 
     /**
-     * Handle cookie consent dialog
+     * Handle cookie consent dialog - Enhanced
      */
     async handleCookieConsent(page) {
         try {
+            console.log('🍪 Handling cookie consent...');
             await page.goto(this.baseUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
-            // Wait a bit for cookie dialog
-            await page.waitForTimeout(2000);
+            // Wait for page to load
+            await this.randomDelay(2000, 3000);
 
             // Try multiple cookie consent selectors
             const cookieSelectors = [
                 'button[data-test="cookie-accept-all"]',
                 '.cookie-consent .accept',
                 '#accept-cookies',
-                'button.js-cookie-consent-accept'
+                'button.js-cookie-consent-accept',
+                'button:has-text("Accepteer alles")',
+                'button:has-text("Akkoord")',
+                '.consent-button-accept',
+                '#js-cookie-consent-accept',
+                'button[data-testid="cookie-accept"]'
             ];
 
             for (const selector of cookieSelectors) {
                 try {
-                    await page.waitForSelector(selector, { timeout: 2000 });
-                    await page.click(selector);
-                    await page.waitForTimeout(1000);
-                    console.log('Cookie consent accepted');
-                    break;
+                    await page.waitForSelector(selector, { timeout: 3000, visible: true });
+                    await page.click(selector, { delay: 100 });
+                    await this.randomDelay(1000, 1500);
+                    console.log('✓ Cookie consent accepted');
+                    return;
                 } catch (e) {
                     // Try next selector
                 }
             }
+
+            // Try to find button by text
+            const buttons = await page.$$('button');
+            for (const button of buttons) {
+                try {
+                    const text = await button.evaluate(el => el.textContent?.trim() || '');
+                    if (text.includes('Accepteer alles') || text.includes('Akkoord') || 
+                        text.includes('Accept all') || text.includes('Begrepen')) {
+                        await button.click({ delay: 100 });
+                        await this.randomDelay(1000, 1500);
+                        console.log(`✓ Cookie consent accepted using text: "${text}"`);
+                        return;
+                    }
+                } catch (e) {
+                    // Continue
+                }
+            }
+
+            console.log('ℹ️ No cookie consent dialog found (may have been accepted already)');
         } catch (error) {
-            console.log('No cookie consent or already handled');
+            console.log('ℹ️ Cookie consent handling:', error.message);
         }
     }
 
     /**
-     * Search for sellers by keyword
+     * Search for sellers by keyword - Enhanced with fixed pagination
      */
-    async searchForKeyword(page, keyword, maxResults, deepSearch) {
-        console.log(`Searching for keyword: ${keyword}`);
+    async searchForKeyword(page, keyword, maxResults, deepSearch, onProgress) {
+        console.log(`🔍 Searching for: "${keyword}"`);
 
-        // Perform search
-        const searchInput = await page.$('#searchfor');
-        if (searchInput) {
-            await searchInput.click({ clickCount: 3 });
-            await searchInput.type(keyword);
-            await page.keyboard.press('Enter');
-            await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 });
-        }
-
-        await page.waitForTimeout(2000);
+        // Navigate to search page directly
+        const searchUrl = `${this.baseUrl}/nl/search/?searchtext=${encodeURIComponent(keyword)}`;
+        await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+        await this.randomDelay(2000, 3000);
 
         const sellers = [];
+        const seenSellers = new Set(); // Track unique sellers
         let pageCount = 0;
-        const maxPages = deepSearch ? 5 : 2;
+        const maxPages = deepSearch ? 10 : 5; // Increased max pages for more results
+        let consecutiveEmptyPages = 0;
 
-        while (sellers.length < maxResults && pageCount < maxPages) {
-            // Get product links
+        while (sellers.length < maxResults && pageCount < maxPages && consecutiveEmptyPages < 2) {
+            console.log(`  📄 Page ${pageCount + 1}: Extracting products...`);
+
+            // Scroll to load lazy-loaded content
+            await this.scrollToLoad(page);
+
+            // Get product links with improved selectors
             const products = await page.evaluate(() => {
                 const links = [];
-                document.querySelectorAll('a[href*="/p/"]').forEach(el => {
-                    const href = el.href;
-                    if (!links.find(l => l === href)) {
-                        links.push(href);
+                const seenUrls = new Set();
+
+                // Multiple selectors for product links
+                const selectors = [
+                    'a[href*="/p/"]',
+                    'a[href*="/product/"]',
+                    '.product-item a',
+                    '[data-test="product-item"] a',
+                    '.list-item__product-info a',
+                    '.product-title a'
+                ];
+
+                for (const selector of selectors) {
+                    const elements = document.querySelectorAll(selector);
+                    for (const el of elements) {
+                        const href = el.href;
+                        if (href && !seenUrls.has(href) && href.includes('/p/')) {
+                            seenUrls.add(href);
+                            links.push(href);
+                        }
                     }
-                });
-                return links.slice(0, 20); // Limit to 20 per page
+                }
+
+                return links;
             });
 
-            console.log(`Found ${products.length} products on page ${pageCount + 1}`);
+            console.log(`  ✓ Found ${products.length} unique products on page ${pageCount + 1}`);
 
             // Extract sellers from products
+            let newSellersOnPage = 0;
             for (const productUrl of products) {
                 if (sellers.length >= maxResults) break;
+                if (this.shouldStop) break;
 
                 try {
                     const seller = await this.extractSellerFromProduct(page, productUrl, keyword);
-                    if (seller) {
+                    if (seller && !seenSellers.has(seller.sellerId)) {
+                        seenSellers.add(seller.sellerId);
                         sellers.push(seller);
+                        newSellersOnPage++;
+                        
+                        if (onProgress) {
+                            onProgress({
+                                found: sellers.length,
+                                seller: seller.shopName,
+                                status: 'extracted'
+                            });
+                        }
                     }
                 } catch (error) {
-                    console.error('Error extracting seller:', error.message);
+                    console.error(`    ✗ Error extracting from ${productUrl}:`, error.message);
                 }
+
+                // Small delay between product visits
+                await this.randomDelay(300, 800);
+            }
+
+            console.log(`  ✓ Extracted ${newSellersOnPage} new sellers from page ${pageCount + 1}`);
+
+            if (newSellersOnPage === 0) {
+                consecutiveEmptyPages++;
+            } else {
+                consecutiveEmptyPages = 0;
             }
 
             // Try to go to next page
-            if (sellers.length < maxResults) {
+            if (sellers.length < maxResults && !this.shouldStop) {
                 const hasNextPage = await this.goToNextPage(page);
-                if (!hasNextPage) break;
+                if (!hasNextPage) {
+                    console.log('  ℹ️ No more pages available');
+                    break;
+                }
                 pageCount++;
             }
         }
 
-        console.log(`Found ${sellers.length} sellers for "${keyword}"`);
+        console.log(`📊 Found ${sellers.length} unique sellers for "${keyword}"`);
         return sellers;
     }
 
     /**
-     * Extract seller info from product page
+     * Scroll to load lazy content
+     */
+    async scrollToLoad(page) {
+        try {
+            await page.evaluate(() => {
+                window.scrollTo(0, document.body.scrollHeight / 2);
+            });
+            await this.randomDelay(500, 1000);
+            
+            await page.evaluate(() => {
+                window.scrollTo(0, document.body.scrollHeight);
+            });
+            await this.randomDelay(1000, 1500);
+        } catch (error) {
+            console.log('Scroll warning:', error.message);
+        }
+    }
+
+    /**
+     * Extract seller info from product page - Enhanced
      */
     async extractSellerFromProduct(page, productUrl, keyword) {
-        await page.goto(productUrl, { waitUntil: 'networkidle2', timeout: 15000 });
-        await page.waitForTimeout(1000);
+        await page.goto(productUrl, { waitUntil: 'networkidle2', timeout: 20000 });
+        await this.randomDelay(800, 1500);
 
         const sellerInfo = await page.evaluate(() => {
             const info = {
@@ -201,45 +370,88 @@ class SellerResearch {
                 sellerId: null,
                 rating: null,
                 totalProducts: null,
-                isBolCom: false
+                isBolCom: false,
+                businessInfo: null
             };
 
-            // Check if sold by bol.com
             const bodyText = document.body.innerText;
-            if (bodyText.includes('Verkoop door bol') || bodyText.includes('Verkoop door Bol.com')) {
+
+            // Check if sold by bol.com
+            if (bodyText.includes('Verkoop door bol') || 
+                bodyText.includes('Verkoop door Bol.com') ||
+                bodyText.includes('Verkoop en bezorging door bol.com')) {
                 info.isBolCom = true;
                 return info;
             }
 
-            // Try to find seller info
+            // Enhanced seller selectors
             const sellerSelectors = [
                 '[data-test="seller-name"]',
                 '.seller-name',
                 '.shop-name',
-                '.vendor-name'
+                '.vendor-name',
+                '.sold-by__seller',
+                '.wsp-sold-by__seller-name',
+                '.product-page__seller-name',
+                'a[href*="/shop/"]',
+                'a[href*="/winkel/"]',
+                '.buy-box__seller-name'
             ];
 
             for (const selector of sellerSelectors) {
                 const el = document.querySelector(selector);
                 if (el) {
-                    info.shopName = el.textContent.trim();
-                    break;
+                    const text = el.textContent?.trim();
+                    if (text && text.length > 0 && text.length < 100) {
+                        info.shopName = text;
+                        const href = el.href;
+                        if (href && (href.includes('/shop/') || href.includes('/winkel/'))) {
+                            info.shopUrl = href;
+                        }
+                        break;
+                    }
                 }
             }
 
-            // Look for seller page link
-            const sellerLink = document.querySelector('a[href*="/shop/"], a[href*="/winkel/"]');
-            if (sellerLink) {
-                info.shopUrl = sellerLink.href;
+            // Look for seller page link in page
+            if (!info.shopUrl) {
+                const sellerLinkElements = document.querySelectorAll('a[href*="/shop/"], a[href*="/winkel/"]');
+                for (const link of sellerLinkElements) {
+                    const href = link.href;
+                    if (href && !href.includes('/reviews') && !href.includes('/product')) {
+                        info.shopUrl = href;
+                        if (!info.shopName) {
+                            info.shopName = link.textContent?.trim();
+                        }
+                        break;
+                    }
+                }
             }
 
-            // Extract rating if available
-            const ratingEl = document.querySelector('[data-test="rating"], .rating, .stars');
-            if (ratingEl) {
-                const ratingMatch = ratingEl.textContent.match(/([\d.]+)\s*[★*]?/);
-                if (ratingMatch) {
-                    info.rating = ratingMatch[1];
+            // Extract rating
+            const ratingSelectors = [
+                '[data-test="rating"]',
+                '.rating',
+                '.stars',
+                '.seller-rating',
+                '.review-score'
+            ];
+
+            for (const selector of ratingSelectors) {
+                const el = document.querySelector(selector);
+                if (el) {
+                    const ratingMatch = el.textContent?.match(/([\d.]+)\s*[★*]?/);
+                    if (ratingMatch) {
+                        info.rating = ratingMatch[1];
+                        break;
+                    }
                 }
+            }
+
+            // Extract business info (if available)
+            const businessText = bodyText.match(/(?:Officieel(?:\s+verkoper)?|Business|Handelaar)[\s\S]{0,200}/i);
+            if (businessText) {
+                info.businessInfo = businessText[0].trim();
             }
 
             return info;
@@ -254,79 +466,165 @@ class SellerResearch {
         sellerInfo.sellerId = this.generateSellerId(sellerInfo.shopName);
         sellerInfo.keyword = keyword;
         sellerInfo.status = 'new';
+        sellerInfo.productUrl = productUrl;
 
         return sellerInfo;
     }
 
     /**
-     * Enrich seller information by visiting their page
+     * Enrich seller information by visiting their page - Enhanced
      */
     async enrichSellerInfo(page, seller) {
-        if (!seller.shopUrl) return;
+        if (!seller.shopUrl) {
+            console.log(`  ℹ️ No shop URL for ${seller.shopName}, skipping enrichment`);
+            return;
+        }
 
         try {
-            await page.goto(seller.shopUrl, { waitUntil: 'networkidle2', timeout: 15000 });
-            await page.waitForTimeout(1000);
+            console.log(`  🔍 Enriching info for: ${seller.shopName}`);
+            await page.goto(seller.shopUrl, { waitUntil: 'networkidle2', timeout: 20000 });
+            await this.randomDelay(1000, 2000);
 
             const enrichedInfo = await page.evaluate(() => {
                 const info = {
                     contactEmail: null,
-                    totalProducts: null
+                    totalProducts: null,
+                    businessName: null,
+                    kvkNumber: null,
+                    address: null,
+                    phoneNumber: null
                 };
 
                 // Look for email
-                const emailLink = document.querySelector('a[href^="mailto:"]');
-                if (emailLink) {
-                    info.contactEmail = emailLink.href.replace('mailto:', '');
+                const emailLinks = document.querySelectorAll('a[href^="mailto:"]');
+                for (const link of emailLinks) {
+                    const email = link.href.replace('mailto:', '').trim();
+                    if (email.includes('@') && !email.includes('example')) {
+                        info.contactEmail = email;
+                        break;
+                    }
+                }
+
+                // Also check text for email patterns
+                const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/gi;
+                const bodyText = document.body.innerText;
+                const emails = bodyText.match(emailRegex);
+                if (emails && emails.length > 0) {
+                    info.contactEmail = emails[0];
                 }
 
                 // Look for product count
                 const productCountSelectors = [
                     '[data-test="product-count"]',
                     '.product-count',
-                    '.total-products'
+                    '.total-products',
+                    '.assortment-size',
+                    '.seller-stats__products'
                 ];
 
                 for (const selector of productCountSelectors) {
                     const el = document.querySelector(selector);
                     if (el) {
-                        const countMatch = el.textContent.match(/(\d+)/);
+                        const countMatch = el.textContent?.match(/(\d+(?:\.\d+)?[\dKkMm]*)/);
                         if (countMatch) {
-                            info.totalProducts = parseInt(countMatch[1]);
+                            info.totalProducts = countMatch[1];
                             break;
                         }
                     }
+                }
+
+                // Look for business information
+                const businessSelectors = [
+                    '.business-name',
+                    '.company-name',
+                    '.kvk-number',
+                    '.chamber-of-commerce'
+                ];
+
+                for (const selector of businessSelectors) {
+                    const el = document.querySelector(selector);
+                    if (el && el.textContent?.trim()) {
+                        const text = el.textContent.trim();
+                        if (text.includes('KvK') || text.includes('Kamer')) {
+                            info.kvkNumber = text;
+                        } else {
+                            info.businessName = text;
+                        }
+                    }
+                }
+
+                // Look for phone
+                const phoneLinks = document.querySelectorAll('a[href^="tel:"]');
+                if (phoneLinks.length > 0) {
+                    info.phoneNumber = phoneLinks[0].href.replace('tel:', '');
                 }
 
                 return info;
             });
 
             Object.assign(seller, enrichedInfo);
+            console.log(`  ✓ Enriched: ${seller.contactEmail ? 'email found' : 'no email'}`);
         } catch (error) {
-            console.error('Error enriching seller info:', error.message);
+            console.error(`    ✗ Error enriching ${seller.shopName}:`, error.message);
         }
     }
 
     /**
-     * Navigate to next page of search results
+     * Navigate to next page of search results - Enhanced
      */
     async goToNextPage(page) {
         try {
-            const nextButton = await page.$('a[rel="next"], .next-page, [data-test="next-page"]');
-            if (nextButton) {
-                await nextButton.click();
-                await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 });
-                await page.waitForTimeout(1000);
-                return true;
+            await this.randomDelay(1000, 1500);
+
+            // Try multiple selectors for next button
+            const nextSelectors = [
+                'a[rel="next"]',
+                '.next-page',
+                '[data-test="next-page"]',
+                'a.pagination__next',
+                '.pagination-next',
+                'button:has-text("Volgende")',
+                'a:has-text("›")',
+                'a:has-text("→")'
+            ];
+
+            for (const selector of nextSelectors) {
+                try {
+                    const button = await page.$(selector);
+                    if (button) {
+                        const isVisible = await button.isIntersectingViewports?.() ?? true;
+                        if (isVisible) {
+                            await button.click({ delay: 100 });
+                            await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {});
+                            await this.randomDelay(1500, 2500);
+                            console.log('  ✓ Moved to next page');
+                            return true;
+                        }
+                    }
+                } catch (e) {
+                    // Try next selector
+                }
             }
+
+            // Try direct URL manipulation
+            const currentUrl = page.url();
+            const urlObj = new URL(currentUrl);
+            const currentPage = parseInt(urlObj.searchParams.get('page') || '1');
+            urlObj.searchParams.set('page', String(currentPage + 1));
+            
+            await page.goto(urlObj.toString(), { waitUntil: 'networkidle2', timeout: 15000 });
+            await this.randomDelay(1500, 2500);
+            console.log('  ✓ Moved to next page (via URL)');
+            return true;
+
         } catch (error) {
-            console.log('No next page found');
+            console.log('  ℹ️ No next page found:', error.message);
+            return false;
         }
-        return false;
     }
 
     /**
-     * Save seller to database
+     * Save seller to database with better error handling
      */
     async saveSeller(seller) {
         try {
@@ -336,14 +634,26 @@ class SellerResearch {
                 keyword: seller.keyword,
                 seller_id: seller.sellerId,
                 rating: seller.rating,
-                total_products: seller.totalProducts,
+                total_products: seller.totalProducts || seller.total_products,
                 contact_email: seller.contactEmail,
-                status: seller.status || 'new'
+                status: seller.status || 'new',
+                metadata: JSON.stringify({
+                    businessName: seller.businessName,
+                    kvkNumber: seller.kvkNumber,
+                    address: seller.address,
+                    phoneNumber: seller.phoneNumber,
+                    businessInfo: seller.businessInfo,
+                    productUrl: seller.productUrl,
+                    discoveredAt: new Date().toISOString()
+                })
             });
-            console.log(`Saved seller: ${seller.shopName}`);
+            console.log(`  ✓ Saved seller: ${seller.shopName}`);
         } catch (error) {
-            // Seller might already exist - that's okay
-            console.log(`Seller already exists or error saving: ${seller.shopName}`);
+            if (error.message.includes('UNIQUE constraint')) {
+                console.log(`  ℹ️ Seller already exists: ${seller.shopName}`);
+            } else {
+                console.error(`  ✗ Error saving seller:`, error.message);
+            }
         }
     }
 
@@ -353,9 +663,19 @@ class SellerResearch {
     generateSellerId(shopName) {
         return shopName
             .toLowerCase()
-            .replace(/[^a-z0-9]+/g, '-')
-            .replace(/^-+|-+$/g, '')
+            .replace(/[^a-z0-9\s-]/g, '')
+            .trim()
+            .replace(/\s+/g, '-')
+            .replace(/-+/g, '-')
             .substring(0, 50);
+    }
+
+    /**
+     * Random delay to avoid detection
+     */
+    async randomDelay(min, max) {
+        const delay = Math.floor(Math.random() * (max - min + 1)) + min;
+        return new Promise(resolve => setTimeout(resolve, delay));
     }
 
     /**
@@ -363,6 +683,7 @@ class SellerResearch {
      */
     stop() {
         this.shouldStop = true;
+        console.log('⚠️ Stop requested...');
     }
 
     /**

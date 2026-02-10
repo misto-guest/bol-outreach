@@ -31,28 +31,41 @@ const db = new Database();
 const adspower = AdsPowerClient ? new AdsPowerClient() : null;
 let sellerResearch = null;
 let outreachEngine = null;
+let adspowerProfiles = [];
 
 // Initialize and start server
 async function startServer() {
   try {
     await db.init();
-    console.log('Database initialized');
+    console.log('✅ Database initialized');
 
-    // Initialize research and outreach engines
-    sellerResearch = new SellerResearch(db);
+    // Initialize research and outreach engines with AdsPower
+    sellerResearch = new SellerResearch(db, adspower);
     outreachEngine = new OutreachEngine(db, adspower);
-    console.log('Outreach engines initialized' + (adspower ? ' with AdsPower' : ' (without browser automation)'));
+    console.log('✅ Research and outreach engines initialized');
 
-    // Check AdsPower connection
-    if (adspower) {
-      try {
-        const adspowerStatus = await adspower.testConnection();
-        console.log('AdsPower status:', adspowerStatus.success ? 'Connected' : 'Not connected');
-      } catch (e) {
-        console.log('AdsPower check failed:', e.message);
+    // Check AdsPower connection and load profiles
+    try {
+      const adspowerStatus = await adspower.testConnection();
+      if (adspowerStatus.success) {
+        console.log('✅ AdsPower connected');
+        
+        // Load available profiles
+        try {
+          const profilesResult = await adspower.getProfiles();
+          if (profilesResult && profilesResult.list) {
+            adspowerProfiles = profilesResult.list;
+            console.log(`📋 Loaded ${adspowerProfiles.length} AdsPower profiles`);
+          }
+        } catch (profileError) {
+          console.log('⚠️  Could not load AdsPower profiles:', profileError.message);
+        }
+      } else {
+        console.log('⚠️  AdsPower not connected - will use Puppeteer directly');
       }
-    } else {
-      console.log('AdsPower not configured (running without browser automation)');
+    } catch (adspowerError) {
+      console.log('⚠️  AdsPower connection failed:', adspowerError.message);
+      console.log('   Seller research will use Puppeteer without AdsPower');
     }
     
     app.listen(PORT, () => {
@@ -60,7 +73,7 @@ async function startServer() {
       console.log(`📊 Dashboard: http://localhost:${PORT}\n`);
     });
   } catch (error) {
-    console.error('Failed to start server:', error);
+    console.error('❌ Failed to start server:', error);
     process.exit(1);
   }
 }
@@ -102,23 +115,64 @@ app.get('/api/sellers', async (req, res) => {
   }
 });
 
-// Get single seller
+// Get single seller - Enhanced with better error handling
 app.get('/api/sellers/:id', async (req, res) => {
   try {
-    const seller = await db.get('SELECT * FROM sellers WHERE id = ?', [req.params.id]);
+    const sellerId = req.params.id;
+    console.log(`Fetching seller details for ID: ${sellerId}`);
+    
+    // Try to find by numeric ID or seller_id string
+    let seller = null;
+    
+    // First try numeric ID
+    if (!isNaN(sellerId)) {
+      seller = await db.get('SELECT * FROM sellers WHERE id = ?', [parseInt(sellerId)]);
+    }
+    
+    // If not found, try seller_id string
     if (!seller) {
-      return res.status(404).json({ success: false, error: 'Seller not found' });
+      seller = await db.get('SELECT * FROM sellers WHERE seller_id = ?', [sellerId]);
+    }
+    
+    if (!seller) {
+      console.log(`Seller not found: ${sellerId}`);
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Seller not found',
+        message: `No seller found with ID: ${sellerId}`
+      });
+    }
+    
+    // Parse metadata if exists
+    if (seller.metadata) {
+      try {
+        seller.metadata = JSON.parse(seller.metadata);
+      } catch (e) {
+        seller.metadata = {};
+      }
     }
     
     // Get outreach history for this seller
-    const history = await db.all(
-      'SELECT * FROM outreach_log WHERE seller_id = ? ORDER BY contacted_at DESC',
-      [req.params.id]
-    );
+    try {
+      const history = await db.all(
+        'SELECT * FROM outreach_log WHERE seller_id = ? ORDER BY contacted_at DESC',
+        [seller.id || sellerId]
+      );
+      seller.history = history || [];
+    } catch (historyError) {
+      console.log('Could not load history:', historyError.message);
+      seller.history = [];
+    }
     
-    res.json({ success: true, data: { ...seller, history } });
+    console.log(`✓ Seller details loaded: ${seller.shop_name}`);
+    res.json({ success: true, data: seller });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Error fetching seller:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
@@ -380,14 +434,43 @@ app.post('/api/approvals/:id/reject', async (req, res) => {
 
 // ==================== AdsPower ====================
 
-// Get AdsPower profiles
+// Get AdsPower profiles - Enhanced
 app.get('/api/adspower/profiles', async (req, res) => {
   try {
     if (!adspower) {
       return res.status(503).json({ success: false, error: 'AdsPower not configured' });
     }
-    const profiles = await adspower.getProfiles();
-    res.json({ success: true, data: profiles });
+    
+    // Return cached profiles if available
+    if (adspowerProfiles.length > 0) {
+      return res.json({ 
+        success: true, 
+        data: adspowerProfiles,
+        cached: true,
+        count: adspowerProfiles.length
+      });
+    }
+
+    // Try to fetch profiles
+    try {
+      const profiles = await adspower.getProfiles();
+      if (profiles && profiles.list) {
+        adspowerProfiles = profiles.list;
+      }
+      res.json({ 
+        success: true, 
+        data: profiles.list || [],
+        count: (profiles.list || []).length
+      });
+    } catch (fetchError) {
+      console.log('Could not fetch AdsPower profiles:', fetchError.message);
+      res.json({ 
+        success: true, 
+        data: [], 
+        count: 0,
+        message: 'AdsPower not connected. Profiles will be loaded when AdsPower is available.'
+      });
+    }
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -478,10 +561,10 @@ app.get('/api/audit', async (req, res) => {
 
 // ==================== Seller Research ====================
 
-// Start seller research
+// Start seller research - Enhanced with AdsPower support
 app.post('/api/research/start', async (req, res) => {
   try {
-    const { keywords } = req.body;
+    const { keywords, adspowerProfileId } = req.body;
 
     if (!sellerResearch) {
       return res.status(500).json({ success: false, error: 'Research engine not initialized' });
@@ -491,33 +574,87 @@ app.post('/api/research/start', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Research already in progress' });
     }
 
+    if (!keywords || !Array.isArray(keywords) || keywords.length === 0) {
+      return res.status(400).json({ success: false, error: 'Invalid keywords provided' });
+    }
+
+    console.log(`Starting seller research for ${keywords.length} keywords...`);
+
     // Add to research queue
     const promises = keywords.map(keyword => {
-      return db.run('INSERT INTO research_queue (keyword, status) VALUES (?, ?)', [keyword, 'pending']);
+      return db.run(
+        'INSERT INTO research_queue (keyword, status) VALUES (?, ?)', 
+        [keyword, 'pending']
+      ).catch(err => {
+        console.log(`Queue insert error for "${keyword}":`, err.message);
+        return { id: null };
+      });
     });
 
     await Promise.all(promises);
 
-    // Start research in background
+    // Start research in background with AdsPower if available
     setImmediate(async () => {
       try {
-        const results = await sellerResearch.discoverByKeywords(keywords, {
+        console.log(`\n===== Starting Seller Discovery =====`);
+        console.log(`Keywords: ${keywords.join(', ')}`);
+        
+        const options = {
           maxResults: 25,
           extractSellers: true,
           saveToDb: true,
-          deepSearch: false
-        });
+          deepSearch: false,
+          onProgress: (progress) => {
+            console.log(`Progress: ${progress.current}/${progress.total} - Found: ${progress.found} - Current: ${progress.keyword || 'N/A'}`);
+          }
+        };
 
-        console.log(`Research completed: ${results.totalFound} sellers found`);
+        // Use AdsPower profile if provided and available
+        let useProfile = null;
+        if (adspowerProfileId && adspowerProfiles.length > 0) {
+          const profile = adspowerProfiles.find(p => p.user_id === adspowerProfileId);
+          if (profile) {
+            useProfile = adspowerProfileId;
+            console.log(`Using AdsPower profile: ${adspowerProfileId}`);
+          }
+        }
+
+        const results = await sellerResearch.discoverByKeywords(keywords, options, useProfile);
+
+        console.log(`\n===== Research Summary =====`);
+        console.log(`Total sellers found: ${results.totalFound}`);
+        console.log(`Errors encountered: ${results.errors.length}`);
+        
+        // Update queue status
+        for (const keyword of keywords) {
+          await db.run(
+            'UPDATE research_queue SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE keyword = ?',
+            ['completed', keyword]
+          ).catch(() => {});
+        }
+
       } catch (error) {
         console.error('Research error:', error);
+        // Mark queue items as failed
+        for (const keyword of keywords) {
+          await db.run(
+            'UPDATE research_queue SET status = ?, error_message = ?, completed_at = CURRENT_TIMESTAMP WHERE keyword = ?',
+            ['failed', error.message, keyword]
+          ).catch(() => {});
+        }
       }
     });
 
-    await db.logAudit('research_started', 'research_queue', null, 'system', { keywords });
+    await db.logAudit('research_started', 'research_queue', null, 'system', { keywords, adspowerProfileId });
 
-    res.json({ success: true, message: 'Research started' });
+    res.json({ 
+      success: true, 
+      message: `Research started for ${keywords.length} keywords`,
+      keywords: keywords,
+      usingAdsPower: !!useProfile
+    });
   } catch (error) {
+    console.error('Failed to start research:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
