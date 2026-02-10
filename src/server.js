@@ -9,7 +9,12 @@ const fs = require('fs');
 
 // Import modules
 const Database = require('./database');
-const AdsPowerClient = require('/Users/northsea/clawd-dmitry/warmup-automation/adspower-client.js');
+let AdsPowerClient = null;
+try {
+  AdsPowerClient = require('./adspower-client.js');
+} catch (e) {
+  console.log('AdsPower client not available (optional dependency)');
+}
 const SellerResearch = require('./seller-research');
 const OutreachEngine = require('./outreach-engine');
 
@@ -23,7 +28,7 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 // Initialize modules
 const db = new Database();
-const adspower = new AdsPowerClient();
+const adspower = AdsPowerClient ? new AdsPowerClient() : null;
 let sellerResearch = null;
 let outreachEngine = null;
 
@@ -36,11 +41,19 @@ async function startServer() {
     // Initialize research and outreach engines
     sellerResearch = new SellerResearch(db);
     outreachEngine = new OutreachEngine(db, adspower);
-    console.log('Outreach engines initialized');
+    console.log('Outreach engines initialized' + (adspower ? ' with AdsPower' : ' (without browser automation)'));
 
     // Check AdsPower connection
-    const adspowerStatus = await adspower.testConnection();
-    console.log('AdsPower status:', adspowerStatus.success ? 'Connected' : 'Not connected');
+    if (adspower) {
+      try {
+        const adspowerStatus = await adspower.testConnection();
+        console.log('AdsPower status:', adspowerStatus.success ? 'Connected' : 'Not connected');
+      } catch (e) {
+        console.log('AdsPower check failed:', e.message);
+      }
+    } else {
+      console.log('AdsPower not configured (running without browser automation)');
+    }
     
     app.listen(PORT, () => {
       console.log(`\n🚀 Bol.com Seller Intelligence Platform running on http://localhost:${PORT}`);
@@ -53,6 +66,11 @@ async function startServer() {
 }
 
 // ==================== API Routes ====================
+
+// Health check endpoint (for Railway and monitoring)
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
 // Dashboard stats
 app.get('/api/stats', async (req, res) => {
@@ -365,6 +383,9 @@ app.post('/api/approvals/:id/reject', async (req, res) => {
 // Get AdsPower profiles
 app.get('/api/adspower/profiles', async (req, res) => {
   try {
+    if (!adspower) {
+      return res.status(503).json({ success: false, error: 'AdsPower not configured' });
+    }
     const profiles = await adspower.getProfiles();
     res.json({ success: true, data: profiles });
   } catch (error) {
@@ -385,6 +406,9 @@ app.get('/api/adspower/profiles/:profileId/status', async (req, res) => {
 // Start AdsPower profile
 app.post('/api/adspower/profiles/:profileId/start', async (req, res) => {
   try {
+    if (!adspower) {
+      return res.status(503).json({ success: false, error: 'AdsPower not configured' });
+    }
     const result = await adspower.startProfile(req.params.profileId, req.body);
     res.json({ success: true, data: result });
   } catch (error) {
@@ -395,6 +419,9 @@ app.post('/api/adspower/profiles/:profileId/start', async (req, res) => {
 // Stop AdsPower profile
 app.post('/api/adspower/profiles/:profileId/stop', async (req, res) => {
   try {
+    if (!adspower) {
+      return res.status(503).json({ success: false, error: 'AdsPower not configured' });
+    }
     const result = await adspower.stopProfile(req.params.profileId);
     res.json({ success: true, data: result });
   } catch (error) {
