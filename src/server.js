@@ -1,6 +1,7 @@
 /**
  * Bol.com Seller Intelligence Platform
  * Main Express Server
+ * Updated with AdsPower integration
  */
 
 const express = require('express');
@@ -19,7 +20,7 @@ const SellerResearch = require('./seller-research');
 const OutreachEngine = require('./outreach-engine');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+let PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(express.json());
@@ -67,11 +68,25 @@ async function startServer() {
       console.log('⚠️  AdsPower connection failed:', adspowerError.message);
       console.log('   Seller research will use Puppeteer without AdsPower');
     }
-    
-    app.listen(PORT, () => {
-      console.log(`\n🚀 Bol.com Seller Intelligence Platform running on http://localhost:${PORT}`);
-      console.log(`📊 Dashboard: http://localhost:${PORT}\n`);
-    });
+
+    // Try to start server on the configured port, with fallback
+    const server = app.listen(PORT)
+      .on('listening', () => {
+        const address = server.address();
+        const actualPort = address.port;
+        console.log(`\n🚀 Bol.com Seller Intelligence Platform running on http://localhost:${actualPort}`);
+        console.log(`📊 Dashboard: http://localhost:${actualPort}\n`);
+      })
+      .on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          console.error(`❌ Port ${PORT} is already in use!`);
+          console.error(`💡 Try using a different port: PORT=${parseInt(PORT) + 1} npm start`);
+          console.error(`   Or stop the other application using port ${PORT}`);
+        } else {
+          console.error('❌ Failed to start server:', err);
+        }
+        process.exit(1);
+      });
   } catch (error) {
     console.error('❌ Failed to start server:', error);
     process.exit(1);
