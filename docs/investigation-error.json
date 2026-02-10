@@ -1,0 +1,22 @@
+{
+  "error": {
+    "name": "DOMException"
+  },
+  "findings": {
+    "timestamp": "2026-02-10T11:57:34.455Z",
+    "url": "https://www.bol.com",
+    "selectors": {},
+    "flows": [
+      {
+        "step": 1,
+        "action": "Navigate to homepage",
+        "url": "https://www.bol.com/nl/nl/"
+      }
+    ],
+    "security": [],
+    "screenshots": [
+      "/Users/northsea/clawd-dmitry/bol-outreach/docs/screenshots/01_homepage_2026-02-10T11-57-40-304Z.png"
+    ],
+    "error": "SyntaxError: Failed to execute 'querySelector' on 'Document': 'button[data-test=\"cookie-accept-all\"], .cookie-accept, button:has-text(\"Accepteer\")' is not a valid selector."
+  }
+}

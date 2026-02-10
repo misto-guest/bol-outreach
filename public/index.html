@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bol.com Seller Intelligence Platform</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h2><i class="fas fa-crosshairs"></i> Bol.com Outreach</h2>
+            <button class="close-sidebar" id="closeSidebar"><i class="fas fa-times"></i></button>
+        </div>
+        
+        <ul class="nav-menu">
+            <li>
+                <a href="#dashboard" class="nav-link active" data-page="dashboard">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Dashboard</span>
+                </a>
+            </li>
+            <li>
+                <a href="#research" class="nav-link" data-page="research">
+                    <i class="fas fa-search"></i>
+                    <span>Seller Discovery</span>
+                </a>
+            </li>
+            <li>
+                <a href="#sellers" class="nav-link" data-page="sellers">
+                    <i class="fas fa-store"></i>
+                    <span>Sellers</span>
+                </a>
+            </li>
+            <li>
+                <a href="#campaigns" class="nav-link" data-page="campaigns">
+                    <i class="fas fa-bullhorn"></i>
+                    <span>Campaigns</span>
+                </a>
+            </li>
+            <li>
+                <a href="#approvals" class="nav-link" data-page="approvals">
+                    <i class="fas fa-check-double"></i>
+                    <span>Approval Queue</span>
+                    <span class="badge" id="approvalBadge">0</span>
+                </a>
+            </li>
+            <li>
+                <a href="#templates" class="nav-link" data-page="templates">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Message Templates</span>
+                </a>
+            </li>
+            <li>
+                <a href="#analytics" class="nav-link" data-page="analytics">
+                    <i class="fas fa-chart-bar"></i>
+                    <span>Analytics</span>
+                </a>
+            </li>
+            <li>
+                <a href="#settings" class="nav-link" data-page="settings">
+                    <i class="fas fa-cog"></i>
+                    <span>Settings</span>
+                </a>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Top Header -->
+        <header class="top-header">
+            <button class="menu-toggle" id="menuToggle">
+                <i class="fas fa-bars"></i>
+            </button>
+            <h1 id="pageTitle">Dashboard</h1>
+            <div class="header-actions">
+                <button class="btn btn-primary" id="quickAction">
+                    <i class="fas fa-plus"></i> Quick Action
+                </button>
+            </div>
+        </header>
+
+        <!-- Page Content Container -->
+        <main class="page-content" id="pageContent">
+            <!-- Content loaded dynamically -->
+        </main>
+    </div>
+
+    <!-- Modal Container -->
+    <div class="modal" id="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">Modal Title</h3>
+                <button class="close-modal" id="closeModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Modal content loaded dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toast">
+        <div class="toast-content">
+            <i class="fas fa-check-circle" id="toastIcon"></i>
+            <span id="toastMessage">Notification message</span>
+        </div>
+        <button class="toast-close" id="toastClose">
+            <i class="fas fa-times"></i>
+        </button>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner"></div>
+        <p id="loadingText">Loading...</p>
+    </div>
+
+    <script src="js/app.js"></script>
+    <script src="js/pages/dashboard.js"></script>
+    <script src="js/pages/research.js"></script>
+    <script src="js/pages/sellers.js"></script>
+    <script src="js/pages/campaigns.js"></script>
+    <script src="js/pages/approvals.js"></script>
+    <script src="js/pages/templates.js"></script>
+    <script src="js/pages/analytics.js"></script>
+    <script src="js/pages/settings.js"></script>
+</body>
+</html>

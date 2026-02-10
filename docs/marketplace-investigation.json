@@ -1,0 +1,23 @@
+{
+  "timestamp": "2026-02-10T12:00:30.956Z",
+  "queries": [
+    {
+      "query": "boeken",
+      "productsChecked": 5
+    },
+    {
+      "query": "speelgoed",
+      "productsChecked": 5
+    },
+    {
+      "query": "elektronica",
+      "productsChecked": 5
+    },
+    {
+      "query": "home & living",
+      "productsChecked": 5
+    }
+  ],
+  "marketplaceSellers": [],
+  "screenshots": []
+}

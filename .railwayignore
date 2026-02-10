@@ -1,0 +1,12 @@
+# Ignore files for Railway deployment
+node_modules/
+data/
+*.db
+*.log
+.env
+.DS_Store
+docs/
+*.md
+!README.md
+.git/
+.gitignore
