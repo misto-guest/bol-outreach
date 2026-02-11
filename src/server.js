@@ -449,7 +449,7 @@ app.post('/api/approvals/:id/reject', async (req, res) => {
 });
 
 // Add sellers to campaign (create outreach records)
-app.post('/api/campaigns/:id/sellers', async (req, res) => {
+app.post('/api/campaigns/:id/sellers', async (req, res, next) => { // Added 'next' for error handling
   try {
     const { sellerIds, approvalStatus = 'pending' } = req.body;
     const campaignId = req.params.id;
@@ -519,6 +519,7 @@ app.post('/api/campaigns/:id/sellers', async (req, res) => {
       message: `Added ${successCount}/${sellerIds.length} sellers to campaign`,
       data: results 
     });
+  }, next);}
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
