@@ -514,12 +514,11 @@ app.post('/api/campaigns/:id/sellers', async (req, res, next) => { // Added 'nex
       total: sellerIds.length 
     });
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: `Added ${successCount}/${sellerIds.length} sellers to campaign`,
-      data: results 
+      data: results
     });
-  }, next);}
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
