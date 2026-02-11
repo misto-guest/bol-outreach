@@ -166,8 +166,8 @@
     --z-tooltip: 1070;
 }
 
-/* Dark Mode Support (Future) */
-@media (prefers-color-scheme: dark) {
+/* Dark Mode Support (Future) - DISABLED to force light theme */
+/* @media (prefers-color-scheme: dark) {
     :root {
         --bg-primary: #0f172a;
         --bg-secondary: #1e293b;
@@ -177,7 +177,7 @@
         --border-light: #334155;
         --border-default: #475569;
     }
-}
+} */
 
 /* ============================================
    RESET & BASE STYLES
