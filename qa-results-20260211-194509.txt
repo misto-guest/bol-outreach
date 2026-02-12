@@ -1,0 +1,109 @@
+=== Bol.com Outreach - End-to-End QA Test ===
+Date: Wed Feb 11 19:45:09 CET 2026
+Base URL: https://bol-outreach-production.up.railway.app
+
+
+[0;34m=== Phase 1: System Health Check ===[0m
+
+[1;33mTest: Health Check[0m
+Endpoint: GET /api/health
+HTTP Status: 200 (expected: 200)
+Response: {"status":"ok","timestamp":"2026-02-11T18:45:09.973Z"}...
+[0;32m✓ PASSED[0m
+
+[1;33mTest: Get Dashboard Stats[0m
+Endpoint: GET /api/stats
+HTTP Status: 200 (expected: 200)
+Response: {"success":true,"data":{"totalSellers":5,"newSellers":5,"researchedSellers":0,"contactedSellers":0,"totalCampaigns":3,"activeCampaigns":2,"pendingApprovals":0,"messagesSent":0,"messagesDelivered":0,"a...
+[0;32m✓ PASSED[0m
+
+[0;34m=== Phase 2: Template Management ===[0m
+
+[1;33mTest: Get Templates[0m
+Endpoint: GET /api/templates
+HTTP Status: 200 (expected: 200)
+Response: {"success":true,"data":[{"id":2,"name":"QA Test Template","subject":"Test Subject","body":"Hello {{seller_name}}, this is a test message.","template_type":"outreach","variables":null,"created_at":"202...
+[0;32m✓ PASSED[0m
+
+[1;33mTest: Create Template[0m
+Endpoint: POST /api/templates
+Data: {
+    "name": "E2E Test Template",
+    "subject": "Test Partnership",
+    "body": "Hi {{shop_name}},\\n\\nThis is a test message for QA purposes.\\n\\nBest regards,\\nQA Team",
+    "template_type": "outreach"
+}
+HTTP Status: 200 (expected: 200)
+Response: {"success":true,"data":{"id":3,"name":"E2E Test Template","subject":"Test Partnership","body":"Hi {{shop_name}},\\n\\nThis is a test message for QA purposes.\\n\\nBest regards,\\nQA Team","template_ty...
+[0;32m✓ PASSED[0m
+
+[0;34m=== Phase 3: Campaign Management ===[0m
+
+[1;33mTest: Get Campaigns[0m
+Endpoint: GET /api/campaigns
+HTTP Status: 200 (expected: 200)
+Response: {"success":true,"data":[{"id":3,"name":"QA Test Campaign","message_template_id":null,"keywords":null,"status":"draft","created_at":"2026-02-11 18:44:00","updated_at":"2026-02-11 18:44:00","start_date"...
+[0;32m✓ PASSED[0m
+
+[1;33mTest: Create Campaign[0m
+Endpoint: POST /api/campaigns
+Data: {
+    "name": "E2E Test Campaign",
+    "description": "End-to-end test campaign",
+    "daily_limit": 10,
+    "message_template_id": 1
+}
+HTTP Status: 200 (expected: 200)
+Response: {"success":true,"data":{"id":4,"name":"E2E Test Campaign","description":"End-to-end test campaign","daily_limit":10,"message_template_id":1}}...
+[0;32m✓ PASSED[0m
+
+[0;34m=== Phase 4: Seller Management ===[0m
+
+[1;33mTest: Get Sellers[0m
+Response: {"success":true,"data":[{"id":4,"shop_name":"Battery Experts","shop_url":null,"discovered_at":"2026-02-10 19:11:25","keyword":null,"status":"new","seller_id":"test_004","rating":"4.7","total_products":null,"contact_email":null,"last_checked_at":null,"metadata":null,"created_at":"2026-02-10 19:11:25"...
+[0;32m✓ PASSED[0m
+Seller IDs to test: 4,5,3,2,1
+
+[0;34m=== Phase 5: Add Sellers to Campaign ===[0m
+
+[1;33mTest: Add Sellers to Campaign 3[0m
+Endpoint: POST /api/campaigns/3/sellers
+Data: {
+        "sellerIds": ["4","5","3","2","1"],
+        "approvalStatus": "approved"
+    }
+HTTP Status: 404 (expected: 200)
+Response: <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <title>Error</title> </head> <body> <pre>Cannot POST /api/campaigns/3/sellers</pre> </body> </html>...
+[0;31m✗ FAILED[0m
+
+[0;34m=== Phase 6: Message Testing ===[0m
+
+[1;33mTest: Get Outreach Status[0m
+Endpoint: GET /api/outreach/status
+HTTP Status: 200 (expected: 200)
+Response: {"success":true,"data":{"isActive":false}}...
+[0;32m✓ PASSED[0m
+
+[1;33mSkipping: Execute Outreach (requires actual browser setup)[0m
+This would send real messages to sellers
+
+[0;34m=== Phase 7: Research & Discovery ===[0m
+
+[1;33mTest: Get Research Status[0m
+Endpoint: GET /api/research/status
+HTTP Status: 200 (expected: 200)
+Response: {"success":true,"data":{"isActive":true}}...
+[0;32m✓ PASSED[0m
+
+[1;33mTest: Get Research Queue[0m
+Endpoint: GET /api/research/queue
+HTTP Status: 200 (expected: 200)
+Response: {"success":true,"data":[{"id":1,"keyword":"powerbank","status":"pending","products_found":0,"sellers_found":0,"started_at":null,"completed_at":null,"error_message":null,"created_at":"2026-02-10 19:07:...
+[0;32m✓ PASSED[0m
+
+[0;34m=== Test Summary ===[0m
+Total Tests Passed: 10
+Total Tests Failed: 1
+Results saved to: qa-results-20260211-194509.txt
+
+[0;31m⚠️  Some tests failed![0m

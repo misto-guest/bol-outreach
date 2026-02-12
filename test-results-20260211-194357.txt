@@ -1,0 +1,65 @@
+=== Bol.com Outreach API Test ===
+Date: Wed Feb 11 19:43:57 CET 2026
+Base URL: https://bol-outreach-production.up.railway.app
+
+
+[1;33mTesting: Health Check[0m
+Endpoint: GET /api/health
+HTTP Status: 200
+Response: 
+[0;32m✓ PASSED[0m
+
+[1;33mTesting: Dashboard Stats[0m
+Endpoint: GET /api/stats
+HTTP Status: 200
+Response: 
+[0;32m✓ PASSED[0m
+
+[1;33mTesting: Get All Sellers[0m
+Endpoint: GET /api/sellers
+HTTP Status: 200
+Response: 
+[0;32m✓ PASSED[0m
+
+[1;33mTesting: Get All Campaigns[0m
+Endpoint: GET /api/campaigns
+HTTP Status: 200
+Response: 
+[0;32m✓ PASSED[0m
+
+[1;33mTesting: Get All Templates[0m
+Endpoint: GET /api/templates
+HTTP Status: 200
+Response: 
+[0;32m✓ PASSED[0m
+
+[1;33mTesting: Create Test Template[0m
+
+[1;33mTesting: Create Template[0m
+Endpoint: POST /api/templates
+HTTP Status: 200
+Response: 
+[0;32m✓ PASSED[0m
+
+[1;33mTesting: Create Test Campaign[0m
+
+[1;33mTesting: Create Campaign[0m
+Endpoint: POST /api/campaigns
+HTTP Status: 200
+Response: 
+[0;32m✓ PASSED[0m
+
+[1;33mTesting: Seller Discovery Trigger[0m
+
+[1;33mTesting: Trigger Seller Discovery[0m
+Endpoint: POST /api/research/discover
+HTTP Status: 404
+Response: 
+[0;31m✗ FAILED[0m
+
+[1;33m=== Test Summary ===[0m
+Tests Passed: 7
+Tests Failed: 1
+Results saved to: test-results-20260211-194357.txt
+
+[0;31mSome tests failed![0m
