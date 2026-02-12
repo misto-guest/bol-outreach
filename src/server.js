@@ -885,3 +885,43 @@ process.on('SIGINT', () => {
   db.close();
   process.exit(0);
 });
+
+// POST /api/campaigns/:id/sellers - Add sellers to campaign
+app.post('/api/campaigns/:id/sellers', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { sellerIds } = req.body;
+    
+    if (!Array.isArray(sellerIds)) {
+      return res.status(400).json({ success: false, error: 'sellerIds must be an array' });
+    }
+    
+    // Get campaign
+    const campaign = await db.get(
+      'SELECT * FROM campaigns WHERE id = ?',
+      [id]
+    );
+    
+    if (!campaign) {
+      return res.status(404).json({ success: false, error: 'Campaign not found' });
+    }
+    
+    // Parse current seller_ids
+    const currentSellers = campaign.seller_ids ? campaign.seller_ids.split(',') : [];
+    
+    // Merge new seller IDs (avoid duplicates)
+    const allSellers = [...new Set([...currentSellers]), ...new Set([...sellerIds])];
+    const sellerIdsString = allSellers.join(',');
+    
+    // Update campaign
+    await db.run(
+      'UPDATE campaigns SET seller_ids = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [sellerIdsString, id]
+    );
+    
+    res.json({ success: true, data: { sellerIds: allSellers, added: sellerIds.filter(id => !currentSellers.includes(id)) });
+  } catch (error) {
+    console.error('Error adding sellers to campaign:', error);
+    res.status(500).json({ success: false, error: 'Failed to add sellers to campaign' });
+  }
+});
