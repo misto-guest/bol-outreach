@@ -910,7 +910,7 @@ app.post('/api/campaigns/:id/sellers', async (req, res) => {
     const currentSellers = campaign.seller_ids ? campaign.seller_ids.split(',') : [];
     
     // Merge new seller IDs (avoid duplicates)
-    const allSellers = [...new Set([...currentSellers]), ...new Set([...sellerIds])];
+    const allSellers = [...new Set([...currentSellers, ...sellerIds])];
     const sellerIdsString = allSellers.join(',');
     
     // Update campaign
