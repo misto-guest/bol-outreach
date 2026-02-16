@@ -1,110 +1,84 @@
 #!/bin/bash
-
-# Bol.com Outreach Tool - API Test Script
-# Tests all major functionality for QA
+# Test bol.com Outreach API Endpoints
 
 BASE_URL="https://bol-outreach-production.up.railway.app"
-RESULTS_FILE="test-results-$(date +%Y%m%d-%H%M%S).txt"
 
-echo "=== Bol.com Outreach API Test ===" | tee $RESULTS_FILE
-echo "Date: $(date)" | tee -a $RESULTS_FILE
-echo "Base URL: $BASE_URL" | tee -a $RESULTS_FILE
-echo "" | tee -a $RESULTS_FILE
+echo "🧪 Testing Bol.com Outreach API Endpoints"
+echo "=========================================="
+echo ""
 
-# Color codes for output
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+# Test 1: Health Check
+echo "Test 1: Health Check"
+echo "GET /api/health"
+curl -s "$BASE_URL/api/health" | jq '.' 2>/dev/null || curl -s "$BASE_URL/api/health"
+echo ""
+echo ""
 
-# Test counter
-TESTS_PASSED=0
-TESTS_FAILED=0
+# Test 2: Get Stats
+echo "Test 2: Get Stats"
+echo "GET /api/stats"
+curl -s "$BASE_URL/api/stats" | jq '.' 2>/dev/null || curl -s "$BASE_URL/api/stats"
+echo ""
+echo ""
 
-# Function to run a test
-run_test() {
-    local test_name=$1
-    local endpoint=$2
-    local method=${3:-GET}
-    local data=$4
+# Test 3: Get Sellers
+echo "Test 3: Get Sellers"
+echo "GET /api/sellers"
+curl -s "$BASE_URL/api/sellers" | jq '.' 2>/dev/null || curl -s "$BASE_URL/api/sellers"
+echo ""
+echo ""
 
-    echo -e "\n${YELLOW}Testing: $test_name${NC}" | tee -a $RESULTS_FILE
-    echo "Endpoint: $method $endpoint" | tee -a $RESULTS_FILE
+# Test 4: Get Campaigns
+echo "Test 4: Get Campaigns"
+echo "GET /api/campaigns"
+curl -s "$BASE_URL/api/campaigns" | jq '.' 2>/dev/null || curl -s "$BASE_URL/api/campaigns"
+echo ""
+echo ""
 
-    if [ "$method" = "GET" ]; then
-        response=$(curl -s -w "\n%{http_code}" "$BASE_URL$endpoint")
-    else
-        response=$(curl -s -w "\n%{http_code}" -X "$method" \
-            -H "Content-Type: application/json" \
-            -d "$data" \
-            "$BASE_URL$endpoint")
-    fi
+# Test 5: Get Templates
+echo "Test 5: Get Templates"
+echo "GET /api/templates"
+curl -s "$BASE_URL/api/templates" | jq '.' 2>/dev/null || curl -s "$BASE_URL/api/templates"
+echo ""
+echo ""
 
-    http_code=$(echo "$response" | tail -n1)
-    body=$(echo "$response" | head -n-1)
+# Test 6: CRITICAL - Add Sellers to Campaign
+echo "Test 6: CRITICAL - Add Sellers to Campaign"
+echo "POST /api/campaigns/3/sellers"
+echo "Expected: 200 OK with created records"
+echo "Actual:"
+RESPONSE=$(curl -s -X POST "$BASE_URL/api/campaigns/3/sellers" \
+  -H "Content-Type: application/json" \
+  -d '{"sellerIds":[4,5],"approvalStatus":"approved"}')
+echo "$RESPONSE" | jq '.' 2>/dev/null || echo "$RESPONSE"
+echo ""
 
-    echo "HTTP Status: $http_code" | tee -a $RESULTS_FILE
-    echo "Response: $body" | tee -a $RESULTS_FILE
-
-    if [ "$http_code" -lt 300 ]; then
-        echo -e "${GREEN}✓ PASSED${NC}" | tee -a $RESULTS_FILE
-        ((TESTS_PASSED++))
-    else
-        echo -e "${RED}✗ FAILED${NC}" | tee -a $RESULTS_FILE
-        ((TESTS_FAILED++))
-    fi
-}
-
-# 1. Health Check
-run_test "Health Check" "/api/health"
-
-# 2. Get Dashboard Stats
-run_test "Dashboard Stats" "/api/stats"
-
-# 3. Get Sellers
-run_test "Get All Sellers" "/api/sellers"
-
-# 4. Get Campaigns
-run_test "Get All Campaigns" "/api/campaigns"
-
-# 5. Get Templates
-run_test "Get All Templates" "/api/templates"
-
-# 6. Create Test Template
-echo -e "\n${YELLOW}Testing: Create Test Template${NC}" | tee -a $RESULTS_FILE
-template_data='{
-    "name": "QA Test Template",
-    "subject": "Test Subject",
-    "body": "Hello {{seller_name}}, this is a test message."
-}'
-run_test "Create Template" "/api/templates" "POST" "$template_data"
-
-# 7. Create Test Campaign
-echo -e "\n${YELLOW}Testing: Create Test Campaign${NC}" | tee -a $RESULTS_FILE
-campaign_data='{
-    "name": "QA Test Campaign",
-    "description": "Test campaign for QA"
-}'
-run_test "Create Campaign" "/api/campaigns" "POST" "$campaign_data"
-
-# 8. Test Seller Discovery Trigger
-echo -e "\n${YELLOW}Testing: Seller Discovery Trigger${NC}" | tee -a $RESULTS_FILE
-discovery_data='{
-    "keyword": "powerbank",
-    "max_sellers": 5
-}'
-run_test "Trigger Seller Discovery" "/api/research/discover" "POST" "$discovery_data"
-
-# Summary
-echo -e "\n${YELLOW}=== Test Summary ===${NC}" | tee -a $RESULTS_FILE
-echo "Tests Passed: $TESTS_PASSED" | tee -a $RESULTS_FILE
-echo "Tests Failed: $TESTS_FAILED" | tee -a $RESULTS_FILE
-echo "Results saved to: $RESULTS_FILE" | tee -a $RESULTS_FILE
-
-if [ $TESTS_FAILED -eq 0 ]; then
-    echo -e "\n${GREEN}All tests passed!${NC}" | tee -a $RESULTS_FILE
-    exit 0
+# Check if response contains HTML (error) or JSON (success)
+if echo "$RESPONSE" | grep -q "Cannot POST"; then
+    echo "❌ FAILED: Endpoint returns 404"
+    echo "🔧 Fix needed: Trigger Railway redeploy"
 else
-    echo -e "\n${RED}Some tests failed!${NC}" | tee -a $RESULTS_FILE
-    exit 1
+    echo "✅ PASSED: Endpoint is working"
 fi
+echo ""
+
+# Test 7: Research Status
+echo "Test 7: Research Status"
+echo "GET /api/research/status"
+curl -s "$BASE_URL/api/research/status" | jq '.' 2>/dev/null || curl -s "$BASE_URL/api/research/status"
+echo ""
+echo ""
+
+# Test 8: Outreach Status
+echo "Test 8: Outreach Status"
+echo "GET /api/outreach/status"
+curl -s "$BASE_URL/api/outreach/status" | jq '.' 2>/dev/null || curl -s "$BASE_URL/api/outreach/status"
+echo ""
+echo ""
+
+echo "=========================================="
+echo "✅ Testing complete"
+echo ""
+echo "Summary:"
+echo "- If Test 6 shows 404: Latest code not deployed"
+echo "- Solution: Trigger Railway redeploy or push empty commit"

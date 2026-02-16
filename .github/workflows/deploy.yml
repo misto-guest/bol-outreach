@@ -1,0 +1,15 @@
+name: Trigger Railway Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  railway-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Railway
+        run: |
+          echo "Triggering Railway deployment"
+          echo "Commit: ${{ github.sha }}"
+          echo "This should trigger Railway webhook"
