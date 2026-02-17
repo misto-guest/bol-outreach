@@ -71,11 +71,11 @@ async function startServer() {
     }
 
     // Try to start server on the configured port, with fallback
-    const server = app.listen(PORT)
+    const server = app.listen(PORT, '0.0.0.0')
       .on('listening', () => {
         const address = server.address();
         const actualPort = address.port;
-        console.log(`\n🚀 Bol.com Seller Intelligence Platform running on http://localhost:${actualPort}`);
+        console.log(`\n🚀 Bol.com Seller Intelligence Platform running on http://0.0.0.0:${actualPort}`);
         console.log(`📊 Dashboard: http://localhost:${actualPort}\n`);
       })
       .on('error', (err) => {
