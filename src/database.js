@@ -1,10 +1,10 @@
 /**
  * Database Setup and Schema
  * SQLite database for Bol.com Seller Intelligence Platform
- * Migrated to better-sqlite3 for Railway compatibility
+ * Migrated to sql.js for Railway compatibility (pure JavaScript, no native compilation)
  */
 
-const sqlite3 = require('better-sqlite3');
+const initSqlJs = require('sql.js');
 const fs = require('fs');
 const path = require('path');
 
@@ -12,6 +12,7 @@ class Database {
   constructor(dbPath = path.join(__dirname, '../data/bol-outreach.db')) {
     this.dbPath = dbPath;
     this.db = null;
+    this.SQL = null;
   }
 
   /**
@@ -25,13 +26,33 @@ class Database {
     }
 
     try {
-      this.db = new sqlite3(this.dbPath);
-      console.log('Connected to SQLite database:', this.dbPath);
-      await this.createTables();
+      // Initialize sql.js
+      this.SQL = await initSqlJs();
+      
+      // Load existing database or create new one
+      if (fs.existsSync(this.dbPath)) {
+        const buffer = fs.readFileSync(this.dbPath);
+        this.db = new this.SQL.Database(buffer);
+        console.log('Connected to SQLite database:', this.dbPath);
+      } else {
+        this.db = new this.SQL.Database();
+        console.log('Created new SQLite database:', this.dbPath);
+        await this.createTables();
+        this.saveToFile();
+      }
     } catch (err) {
       console.error('Error opening database:', err);
       throw err;
     }
+  }
+
+  /**
+   * Save database to file
+   */
+  saveToFile() {
+    const data = this.db.export();
+    const buffer = Buffer.from(data);
+    fs.writeFileSync(this.dbPath, buffer);
   }
 
   /**
@@ -146,7 +167,7 @@ class Database {
     ];
 
     for (const sql of tables) {
-      this.run(sql);
+      this.db.run(sql);
     }
 
     // Create indexes for better query performance
@@ -163,44 +184,56 @@ class Database {
     ];
 
     for (const sql of indexes) {
-      this.run(sql);
+      this.db.run(sql);
     }
 
     console.log('Database tables and indexes created successfully');
   }
 
   /**
-   * Run a SQL query (synchronous)
+   * Run a SQL query
    */
   run(sql, params = []) {
     try {
-      const stmt = this.db.prepare(sql);
-      const result = stmt.run(...params);
-      return { id: result.lastInsertRowid, changes: result.changes };
+      this.db.run(sql, params);
+      this.saveToFile();
+      // Get lastInsertId
+      const result = this.db.exec("SELECT last_insert_rowid() as id");
+      const lastId = result.length > 0 && result[0].values.length > 0 ? result[0].values[0][0] : null;
+      return { id: lastId, changes: 1 };
     } catch (err) {
       throw err;
     }
   }
 
   /**
-   * Get a single row (synchronous)
+   * Get a single row
    */
   get(sql, params = []) {
     try {
       const stmt = this.db.prepare(sql);
-      return stmt.get(...params);
+      stmt.bind(params);
+      const result = stmt.getAsObject({}) || null;
+      stmt.free();
+      return result;
     } catch (err) {
       throw err;
     }
   }
 
   /**
-   * Get all rows (synchronous)
+   * Get all rows
    */
   all(sql, params = []) {
     try {
       const stmt = this.db.prepare(sql);
-      return stmt.all(...params);
+      stmt.bind(params);
+      const results = [];
+      while (stmt.step()) {
+        results.push(stmt.getAsObject());
+      }
+      stmt.free();
+      return results;
     } catch (err) {
       throw err;
     }
@@ -425,24 +458,29 @@ class Database {
   async getDashboardStats() {
     const stats = {};
     
-    stats.totalSellers = this.get(`SELECT COUNT(*) as count FROM sellers`).count;
-    stats.newSellers = this.get(`SELECT COUNT(*) as count FROM sellers WHERE status = 'new'`).count;
-    stats.researchedSellers = this.get(`SELECT COUNT(*) as count FROM sellers WHERE status = 'researched'`).count;
-    stats.contactedSellers = this.get(`SELECT COUNT(*) as count FROM sellers WHERE status = 'contacted'`).count;
+    const getTotal = (table, where = '') => {
+      const sql = `SELECT COUNT(*) as count FROM ${table} ${where}`;
+      const result = this.db.exec(sql);
+      return result.length > 0 ? result[0].values[0][0] : 0;
+    };
     
-    stats.totalCampaigns = this.get(`SELECT COUNT(*) as count FROM campaigns`).count;
-    stats.activeCampaigns = this.get(`SELECT COUNT(*) as count FROM campaigns WHERE status = 'active'`).count;
+    stats.totalSellers = getTotal('sellers');
+    stats.newSellers = getTotal('sellers', "WHERE status = 'new'");
+    stats.researchedSellers = getTotal('sellers', "WHERE status = 'researched'");
+    stats.contactedSellers = getTotal('sellers', "WHERE status = 'contacted'");
     
-    stats.pendingApprovals = this.get(`SELECT COUNT(*) as count FROM outreach_log WHERE approval_status = 'pending'`).count;
-    stats.messagesSent = this.get(`SELECT COUNT(*) as count FROM outreach_log WHERE approval_status = 'approved'`).count;
-    stats.messagesDelivered = this.get(`SELECT COUNT(*) as count FROM outreach_log WHERE status = 'sent'`).count;
+    stats.totalCampaigns = getTotal('campaigns');
+    stats.activeCampaigns = getTotal('campaigns', "WHERE status = 'active'");
     
-    stats.adspowerProfiles = this.get(`SELECT COUNT(*) as count FROM adspower_usage`).count;
-    stats.activeProfiles = this.get(`
-      SELECT COUNT(*) as count FROM adspower_usage 
-      WHERE messages_sent_today < 2 
-      AND (cooldown_until IS NULL OR cooldown_until < date('now'))
-    `).count;
+    stats.pendingApprovals = getTotal('outreach_log', "WHERE approval_status = 'pending'");
+    stats.messagesSent = getTotal('outreach_log', "WHERE approval_status = 'approved'");
+    stats.messagesDelivered = getTotal('outreach_log', "WHERE status = 'sent'");
+    
+    stats.adspowerProfiles = getTotal('adspower_usage');
+    stats.activeProfiles = getTotal(
+      'adspower_usage',
+      "WHERE messages_sent_today < 2 AND (cooldown_until IS NULL OR cooldown_until < date('now'))"
+    );
     
     return stats;
   }
@@ -452,6 +490,7 @@ class Database {
    */
   close() {
     if (this.db) {
+      this.saveToFile();
       this.db.close();
       console.log('Database connection closed');
     }

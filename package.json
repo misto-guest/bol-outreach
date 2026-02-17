@@ -16,10 +16,10 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "better-sqlite3": "^12.6.2",
     "body-parser": "^2.2.2",
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "puppeteer": "^24.37.2"
+    "puppeteer": "^24.37.2",
+    "sql.js": "^1.14.0"
   }
 }
