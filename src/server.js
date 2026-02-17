@@ -919,7 +919,7 @@ app.post('/api/campaigns/:id/sellers', async (req, res) => {
       [sellerIdsString, id]
     );
     
-    res.json({ success: true, data: { sellerIds: allSellers, added: sellerIds.filter(id => !currentSellers.includes(id)) });
+    res.json({ success: true, data: { sellerIds: allSellers, added: sellerIds.filter(id => !currentSellers.includes(id)) } });
   } catch (error) {
     console.error('Error adding sellers to campaign:', error);
     res.status(500).json({ success: false, error: 'Failed to add sellers to campaign' });
