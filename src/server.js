@@ -886,3 +886,4 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
+// Force rebuild Tue Feb 17 09:08:02 CET 2026
