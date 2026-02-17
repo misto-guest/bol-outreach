@@ -1,9 +1,10 @@
 /**
  * Database Setup and Schema
  * SQLite database for Bol.com Seller Intelligence Platform
+ * Migrated to better-sqlite3 for Railway compatibility
  */
 
-const sqlite3 = require('sqlite3').verbose();
+const sqlite3 = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
 
@@ -23,19 +24,14 @@ class Database {
       fs.mkdirSync(dataDir, { recursive: true });
     }
 
-    return new Promise((resolve, reject) => {
-      this.db = new sqlite3.Database(this.dbPath, (err) => {
-        if (err) {
-          console.error('Error opening database:', err);
-          reject(err);
-        } else {
-          console.log('Connected to SQLite database:', this.dbPath);
-          this.createTables()
-            .then(() => resolve())
-            .catch(reject);
-        }
-      });
-    });
+    try {
+      this.db = new sqlite3(this.dbPath);
+      console.log('Connected to SQLite database:', this.dbPath);
+      await this.createTables();
+    } catch (err) {
+      console.error('Error opening database:', err);
+      throw err;
+    }
   }
 
   /**
@@ -150,7 +146,7 @@ class Database {
     ];
 
     for (const sql of tables) {
-      await this.run(sql);
+      this.run(sql);
     }
 
     // Create indexes for better query performance
@@ -167,46 +163,47 @@ class Database {
     ];
 
     for (const sql of indexes) {
-      await this.run(sql);
+      this.run(sql);
     }
 
     console.log('Database tables and indexes created successfully');
   }
 
   /**
-   * Run a SQL query
+   * Run a SQL query (synchronous)
    */
   run(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      this.db.run(sql, params, function(err) {
-        if (err) reject(err);
-        else resolve({ id: this.lastID, changes: this.changes });
-      });
-    });
+    try {
+      const stmt = this.db.prepare(sql);
+      const result = stmt.run(...params);
+      return { id: result.lastInsertRowid, changes: result.changes };
+    } catch (err) {
+      throw err;
+    }
   }
 
   /**
-   * Get a single row
+   * Get a single row (synchronous)
    */
   get(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      this.db.get(sql, params, (err, row) => {
-        if (err) reject(err);
-        else resolve(row);
-      });
-    });
+    try {
+      const stmt = this.db.prepare(sql);
+      return stmt.get(...params);
+    } catch (err) {
+      throw err;
+    }
   }
 
   /**
-   * Get all rows
+   * Get all rows (synchronous)
    */
   all(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      this.db.all(sql, params, (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
-      });
-    });
+    try {
+      const stmt = this.db.prepare(sql);
+      return stmt.all(...params);
+    } catch (err) {
+      throw err;
+    }
   }
 
   /**
@@ -229,7 +226,7 @@ class Database {
       sellerData.status || 'new',
       sellerData.metadata ? JSON.stringify(sellerData.metadata) : null
     ];
-    return await this.run(sql, params);
+    return this.run(sql, params);
   }
 
   /**
@@ -237,7 +234,7 @@ class Database {
    */
   async getSellersByStatus(status, limit = 100) {
     const sql = `SELECT * FROM sellers WHERE status = ? ORDER BY discovered_at DESC LIMIT ?`;
-    return await this.all(sql, [status, limit]);
+    return this.all(sql, [status, limit]);
   }
 
   /**
@@ -252,7 +249,7 @@ class Database {
       ORDER BY s.discovered_at ASC
       LIMIT ?
     `;
-    return await this.all(sql, [limit]);
+    return this.all(sql, [limit]);
   }
 
   /**
@@ -273,7 +270,7 @@ class Database {
       campaignData.daily_limit || 10,
       campaignData.notes || null
     ];
-    return await this.run(sql, params);
+    return this.run(sql, params);
   }
 
   /**
@@ -291,7 +288,7 @@ class Database {
       templateData.template_type || 'outreach',
       templateData.variables ? JSON.stringify(templateData.variables) : null
     ];
-    return await this.run(sql, params);
+    return this.run(sql, params);
   }
 
   /**
@@ -302,7 +299,7 @@ class Database {
       INSERT INTO outreach_log (seller_id, campaign_id, message_sent, adspower_profile_id, status)
       VALUES (?, ?, ?, ?, 'pending')
     `;
-    return await this.run(sql, [
+    return this.run(sql, [
       outreachData.seller_id,
       outreachData.campaign_id,
       outreachData.message,
@@ -322,7 +319,7 @@ class Database {
       WHERE ol.approval_status = 'pending'
       ORDER BY ol.created_at ASC
     `;
-    return await this.all(sql);
+    return this.all(sql);
   }
 
   /**
@@ -334,7 +331,7 @@ class Database {
       SET approval_status = ?, approved_by = ?, approved_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `;
-    return await this.run(sql, [status, approvedBy, logId]);
+    return this.run(sql, [status, approvedBy, logId]);
   }
 
   /**
@@ -342,13 +339,13 @@ class Database {
    */
   async checkAdsPowerUsage(profileId) {
     const sql = `SELECT * FROM adspower_usage WHERE profile_id = ?`;
-    let usage = await this.get(sql, [profileId]);
+    let usage = this.get(sql, [profileId]);
     
     const today = new Date().toISOString().split('T')[0];
     
     if (!usage) {
       // Create new usage record
-      await this.run(
+      this.run(
         `INSERT INTO adspower_usage (profile_id, last_used, messages_sent_today, last_reset) VALUES (?, ?, 0, ?)`,
         [profileId, today, today]
       );
@@ -365,7 +362,7 @@ class Database {
     
     // Reset daily counter if needed
     if (usage.last_reset !== today) {
-      await this.run(
+      this.run(
         `UPDATE adspower_usage SET messages_sent_today = 0, last_reset = ? WHERE profile_id = ?`,
         [today, profileId]
       );
@@ -388,7 +385,7 @@ class Database {
   async recordMessageSent(profileId) {
     const today = new Date().toISOString().split('T')[0];
     
-    await this.run(`
+    this.run(`
       UPDATE adspower_usage 
       SET messages_sent_today = messages_sent_today + 1,
           total_messages_sent = total_messages_sent + 1,
@@ -398,12 +395,12 @@ class Database {
     `, [today, profileId]);
     
     // Check if daily limit reached, set cooldown
-    const usage = await this.get(`SELECT messages_sent_today FROM adspower_usage WHERE profile_id = ?`, [profileId]);
+    const usage = this.get(`SELECT messages_sent_today FROM adspower_usage WHERE profile_id = ?`, [profileId]);
     if (usage && usage.messages_sent_today >= 2) {
       const cooldownUntil = new Date();
       cooldownUntil.setDate(cooldownUntil.getDate() + 120); // 120 day cooldown
       
-      await this.run(`
+      this.run(`
         UPDATE adspower_usage 
         SET cooldown_until = ?
         WHERE profile_id = ?
@@ -419,7 +416,7 @@ class Database {
       INSERT INTO audit_log (action, entity_type, entity_id, user_id, details)
       VALUES (?, ?, ?, ?, ?)
     `;
-    await this.run(sql, [action, entityType, entityId, userId, JSON.stringify(details)]);
+    this.run(sql, [action, entityType, entityId, userId, JSON.stringify(details)]);
   }
 
   /**
@@ -428,24 +425,24 @@ class Database {
   async getDashboardStats() {
     const stats = {};
     
-    stats.totalSellers = (await this.get(`SELECT COUNT(*) as count FROM sellers`)).count;
-    stats.newSellers = (await this.get(`SELECT COUNT(*) as count FROM sellers WHERE status = 'new'`)).count;
-    stats.researchedSellers = (await this.get(`SELECT COUNT(*) as count FROM sellers WHERE status = 'researched'`)).count;
-    stats.contactedSellers = (await this.get(`SELECT COUNT(*) as count FROM sellers WHERE status = 'contacted'`)).count;
+    stats.totalSellers = this.get(`SELECT COUNT(*) as count FROM sellers`).count;
+    stats.newSellers = this.get(`SELECT COUNT(*) as count FROM sellers WHERE status = 'new'`).count;
+    stats.researchedSellers = this.get(`SELECT COUNT(*) as count FROM sellers WHERE status = 'researched'`).count;
+    stats.contactedSellers = this.get(`SELECT COUNT(*) as count FROM sellers WHERE status = 'contacted'`).count;
     
-    stats.totalCampaigns = (await this.get(`SELECT COUNT(*) as count FROM campaigns`)).count;
-    stats.activeCampaigns = (await this.get(`SELECT COUNT(*) as count FROM campaigns WHERE status = 'active'`)).count;
+    stats.totalCampaigns = this.get(`SELECT COUNT(*) as count FROM campaigns`).count;
+    stats.activeCampaigns = this.get(`SELECT COUNT(*) as count FROM campaigns WHERE status = 'active'`).count;
     
-    stats.pendingApprovals = (await this.get(`SELECT COUNT(*) as count FROM outreach_log WHERE approval_status = 'pending'`)).count;
-    stats.messagesSent = (await this.get(`SELECT COUNT(*) as count FROM outreach_log WHERE approval_status = 'approved'`)).count;
-    stats.messagesDelivered = (await this.get(`SELECT COUNT(*) as count FROM outreach_log WHERE status = 'sent'`)).count;
+    stats.pendingApprovals = this.get(`SELECT COUNT(*) as count FROM outreach_log WHERE approval_status = 'pending'`).count;
+    stats.messagesSent = this.get(`SELECT COUNT(*) as count FROM outreach_log WHERE approval_status = 'approved'`).count;
+    stats.messagesDelivered = this.get(`SELECT COUNT(*) as count FROM outreach_log WHERE status = 'sent'`).count;
     
-    stats.adspowerProfiles = (await this.get(`SELECT COUNT(*) as count FROM adspower_usage`)).count;
-    stats.activeProfiles = (await this.get(`
+    stats.adspowerProfiles = this.get(`SELECT COUNT(*) as count FROM adspower_usage`).count;
+    stats.activeProfiles = this.get(`
       SELECT COUNT(*) as count FROM adspower_usage 
       WHERE messages_sent_today < 2 
       AND (cooldown_until IS NULL OR cooldown_until < date('now'))
-    `)).count;
+    `).count;
     
     return stats;
   }
@@ -455,13 +452,8 @@ class Database {
    */
   close() {
     if (this.db) {
-      this.db.close((err) => {
-        if (err) {
-          console.error('Error closing database:', err);
-        } else {
-          console.log('Database connection closed');
-        }
-      });
+      this.db.close();
+      console.log('Database connection closed');
     }
   }
 }
