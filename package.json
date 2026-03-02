@@ -12,7 +12,9 @@
     "build": "tsc && npm run copy-public-js",
     "copy-public-js": "cp -r dist/public/js public/js 2>/dev/null || true",
     "watch": "tsc --watch",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "keywords": [],
   "author": "",
@@ -23,14 +25,19 @@
     "body-parser": "^2.2.2",
     "cors": "^2.8.6",
     "express": "^5.2.1",
+    "node-fetch": "^3.3.2",
     "puppeteer-core": "^24.37.5",
     "sql.js": "^1.14.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
     "@types/node": "^25.3.2",
     "@types/sql.js": "^1.4.9",
+    "dotenv": "^17.3.1",
+    "jest": "^30.2.0",
     "nodemon": "^3.1.14",
+    "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   }

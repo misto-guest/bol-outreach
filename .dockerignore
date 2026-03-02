@@ -1,67 +1,129 @@
-# Node modules
+# Dependencies
 node_modules
-npm-debug.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# TypeScript
-*.ts
-!dist/**/*.ts
-*.d.ts.map
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
 
-# Build artifacts
-dist/public/js
+# Coverage directory used by tools like istanbul
+coverage
+.nyc_output
 
-# Git
-.git
-.gitignore
-.github
+# Grunt intermediate storage
+.grunt
 
-# Documentation
-docs
-*.md
-!README.md
+# Bower dependency directory
+bower_components
 
-# Environment files
+# node-waf configuration
+.lock-wscript
+
+# Compiled binary addons
+build/Release
+
+# Dependency directories
+jspm_packages/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
 .env
-.env.local
-.env.*.local
+.env.test
 
-# Data and logs
-data/
-*.db
-*.db-shm
-*.db-wal
-logs/
+# parcel-bundler cache
+.cache
+.parcel-cache
+
+# Next.js build output
+.next
+
+# Nuxt.js build / generate output
+.nuxt
+dist
+
+# Gatsby files
+.cache/
+
+# Storybook build outputs
+.out
+.storybook-out
+
+# Temporary folders
+tmp/
+temp/
+
+# Logs
+logs
 *.log
-var/
 
-# Test files
-test/
-tests/
-*.test.js
-*.spec.js
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 
-# IDE
-.vscode
-.idea
+# IDE files
+.vscode/
+.idea/
 *.swp
 *.swo
 *~
 
-# OS
-.DS_Store
-Thumbs.db
+# Git
+.git
+.gitignore
 
-# Deployment files
-deploy.sh
-deploy-check.sh
-quick-deploy.sh
-*.sh
+# Documentation (exclude from build context but include in volume mounts)
+# README.md
+# *.md
 
-# Docker
-Dockerfile
-docker-compose.yml
+# Note: .env file is included in build context for development
+
+# Docker files (to avoid recursive builds)
+Dockerfile*
+docker-compose*.yml
 .dockerignore
 
-# CI/CD
-.railwayignore
-nixpacks.toml
+# Test coverage
+coverage/
+.nyc_output/
+
+# Build artifacts
+dist/
+build/
+
+# Development files
+tests/
+test-*.js
+*.test.js
+*.spec.js

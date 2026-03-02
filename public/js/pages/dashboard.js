@@ -100,7 +100,7 @@ App.Pages.dashboard = {
                         </div>
                         <div class="status mb-10">
                             <span class="status-dot" id="adspowerStatus"></span>
-                            <span>AdsPower: <span id="adspowerStatusText">Checking...</span></span>
+                            <span id="adspowerStatusText">AdsPower: Checking...</span>
                         </div>
                     </div>
                 </div>
@@ -119,9 +119,9 @@ App.Pages.dashboard = {
         await this.checkAdsPowerStatus();
     },
 
-    async loadStats() {
+        async loadStats() {
         try {
-            const response = await App.API.get('/stats');
+            const response = await App.API.get('/api/stats');
             this.updateStats(response.data);
         } catch (error) {
             console.error('Failed to load stats:', error);
@@ -193,13 +193,13 @@ App.Pages.dashboard = {
 
     async checkAdsPowerStatus() {
         try {
-            const response = await App.API.get('/adspower/profiles');
+            const response = await App.API.get('/api/adspower/profiles');
             const statusDot = document.getElementById('adspowerStatus');
             const statusText = document.getElementById('adspowerStatusText');
 
-            if (response.success && response.data && response.data.length > 0) {
+            if (response.success && response.data && response.data.list && response.data.list.length > 0) {
                 statusDot.classList.add('active');
-                statusText.textContent = `${response.data.length} profile(s) available`;
+                statusText.textContent = `${response.data.list.length} profile(s) available`;
             } else {
                 statusDot.classList.add('inactive');
                 statusText.textContent = 'No profiles configured';

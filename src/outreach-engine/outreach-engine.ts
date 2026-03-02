@@ -1,11 +1,16 @@
 /**
- * Outreach Execution Engine
- * Handles sending messages via AdsPower profiles with rate limiting and compliance
+ * Unified Outreach Execution Engine
+ * Handles sending messages via AdsPower profiles with rate limiting, profile rotation, 
+ * business hours enforcement, and message variations
  */
 
 import puppeteer, { Browser, Page } from 'puppeteer-core';
-import Database from './database';
-import AdsPowerClient from './adspower-client';
+import Database from '../database';
+import AdsPowerClient from '../adspower-client';
+import ProfileRotator, { ProfileConfig } from './profile-rotator';
+import RateLimiter from './rate-limiter';
+import TimeWindowChecker from './time-window-checker';
+import MessageVariator from './message-variator';
 
 // Types for message and outreach data
 interface MessageData {
@@ -34,28 +39,121 @@ interface OutreachResults {
     skipped: number;
 }
 
-interface AdsPowerProfile {
-    profile_id: string;
-    [key: string]: any;
+interface OutreachEngineConfig {
+    profiles: ProfileConfig[];
+    maxMessagesPerHour?: number;
+    delayMs?: number;
+    timezone?: string;
+    businessHours?: { start: number; end: number };
+    enableVariations?: boolean;
+    aiService?: (text: string) => Promise<string>;
+}
+
+interface OutreachMessage {
+    recipient: string;
+    subject: string;
+    body: string;
+    sentAt?: Date;
+    status?: 'pending' | 'sent' | 'failed' | 'skipped';
+    skipReason?: string;
+    profileId?: string;
 }
 
 class OutreachEngine {
     private db: Database;
     private adspower: AdsPowerClient;
+    private profileRotator: ProfileRotator;
+    private rateLimiter: RateLimiter;
+    private timeChecker: TimeWindowChecker;
+    private messageVariator: MessageVariator;
+    private config: OutreachEngineConfig;
     private isRunning: boolean;
     private shouldStop: boolean;
     private testMode: boolean;
 
-    constructor(database: Database, adspowerClient: AdsPowerClient) {
+    constructor(database: Database, adspowerClient: AdsPowerClient, config?: OutreachEngineConfig) {
         this.db = database;
         this.adspower = adspowerClient;
+        
+        // Initialize with default config if not provided (backward compatibility)
+        this.config = config || {
+            profiles: [],
+            maxMessagesPerHour: 5,
+            delayMs: 5000,
+            timezone: 'Europe/Amsterdam',
+            businessHours: { start: 9, end: 20 },
+            enableVariations: false
+        };
+        
+        // Initialize enhanced components
+        this.profileRotator = new ProfileRotator(this.config.profiles);
+        this.rateLimiter = new RateLimiter(this.config.maxMessagesPerHour || 5);
+        this.timeChecker = new TimeWindowChecker(
+            this.config.timezone || 'Europe/Amsterdam',
+            this.config.businessHours?.start || 9,
+            this.config.businessHours?.end || 20
+        );
+        this.messageVariator = new MessageVariator();
+        
         this.isRunning = false;
         this.shouldStop = false;
         this.testMode = process.env.TEST_MODE === 'true' || process.env.NODE_ENV === 'test';
     }
 
     /**
-     * Execute pending outreach from approval queue
+     * Initialize outreach engine with enhanced features
+     */
+    async initialize(): Promise<void> {
+        console.log('🚀 Initializing Bol.com Outreach Engine...');
+        console.log(`📊 Profiles: ${this.profileRotator.getProfileCount()}`);
+        console.log(`⏱️  Rate limit: ${this.config.maxMessagesPerHour || 5} messages/hour/profile`);
+        console.log(`🕐 Business hours: 9AM-8PM Mon-Sat (${this.config.timezone || 'GMT+1'})`);
+        console.log(`🔄 Profile rotation: ${this.profileRotator.isRotationEnabled() ? 'Enabled' : 'Disabled'}`);
+        console.log(`📝 Message variations: ${this.config.enableVariations ? 'Enabled' : 'Disabled'}`);
+    }
+
+    /**
+     * Check if sending is allowed (time window + rate limit)
+     */
+    private checkSendingAllowed(profileId: string): { allowed: boolean; reason?: string } {
+        // Check time window
+        const timeCheck = this.timeChecker.canSendNow();
+        if (!timeCheck.allowed) {
+            return {
+                allowed: false,
+                reason: `Outside business hours: ${timeCheck.reason}. Next allowed: ${this.timeChecker.formatNextAllowedTime(timeCheck.nextAllowedTime!)}`
+            };
+        }
+
+        // Check rate limit
+        const rateCheck = this.rateLimiter.canSend(profileId);
+        if (!rateCheck.allowed) {
+            return {
+                allowed: false,
+                reason: rateCheck.reason
+            };
+        }
+
+        return { allowed: true };
+    }
+
+    /**
+     * Start browser with next available profile
+     */
+    private async startWithNextProfile(): Promise<{ browser: any; profile: ProfileConfig }> {
+        const profile = this.profileRotator.getNextProfile();
+
+        // Check if this profile can send
+        const check = this.checkSendingAllowed(profile.profileId);
+        if (!check.allowed) {
+            throw new Error(`Profile ${profile.profileId} cannot send: ${check.reason}`);
+        }
+        const result = await this.adspower.startProfile(profile.profileId);
+        return { browser: result, profile };
+    }
+
+    /**
+     * Execute pending outreach from approval queue with enhanced features
      */
     async executeApprovedOutreach(onProgress?: (progress: OutreachProgress) => void): Promise<OutreachResults> {
         this.isRunning = true;
@@ -106,7 +204,7 @@ class OutreachEngine {
 
                     // Rate limiting: wait between messages
                     if (i < approvedMessages.length - 1) {
-                        await this.delay(5000 + Math.random() * 5000); // 5-10 seconds
+                        await this.delay(this.config.delayMs || 5000);
                     }
                 } catch (error: any) {
                     console.error(`Failed to send message to ${message.shop_name}:`, error.message);
@@ -129,7 +227,7 @@ class OutreachEngine {
     }
 
     /**
-     * Send a single message via AdsPower
+     * Send a single message via AdsPower with enhanced features
      */
     async sendMessage(message: MessageData): Promise<boolean> {
         try {
@@ -168,25 +266,25 @@ class OutreachEngine {
                 return true;
             }
 
-            // Get available AdsPower profile
-            const profile = await this.getAvailableProfile();
-            if (!profile) {
-                console.log('No available AdsPower profiles');
+            // Get next available profile with rotation
+            const { browser, profile } = await this.startWithNextProfile();
+            const check = this.checkSendingAllowed(profile.profileId);
+
+            if (!check.allowed) {
+                console.log(`⏸️  Skipping ${message.shop_name}: ${check.reason}`);
+
+                // Update outreach log with skip reason
+                await this.db.run(
+                    `UPDATE outreach_log SET status = 'skipped', error_message = ? WHERE id = ?`,
+                    [check.reason, message.id]
+                );
+
                 return false;
             }
 
-            console.log(`Sending message to ${message.shop_name} using profile ${profile.profile_id}`);
+            console.log(`📧 Sending message to ${message.shop_name} using profile ${profile.profileId}...`);
 
             // Start AdsPower profile
-            const browser = await this.adspower.startProfile(profile.profile_id, {
-                headless: false
-            });
-
-            if (!browser || !browser.puppeteerEndpoint) {
-                throw new Error('Failed to start AdsPower profile');
-            }
-
-            // Connect to browser
             const browserPage = await puppeteer.connect({
                 browserWSEndpoint: browser.puppeteerEndpoint
             });
@@ -206,6 +304,9 @@ class OutreachEngine {
                 const contactFound = await this.findAndSubmitContactForm(page, message.message_sent);
 
                 if (contactFound) {
+                    // Record successful send
+                    this.rateLimiter.recordMessage(profile.profileId);
+                    
                     // Update outreach log
                     await this.db.run(
                         `UPDATE outreach_log SET status = 'sent', contacted_at = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -219,7 +320,7 @@ class OutreachEngine {
                     );
 
                     // Record message sent in AdsPower usage
-                    await this.db.recordMessageSent(profile.profile_id);
+                    await this.db.recordMessageSent(profile.profileId);
 
                     // Update campaign total
                     await this.db.run(
@@ -230,7 +331,7 @@ class OutreachEngine {
                     // Log audit
                     await this.db.logAudit('message_sent', 'outreach_log', message.id, 'system', {
                         seller: message.shop_name,
-                        profile: profile.profile_id
+                        profile: profile.profileId
                     });
 
                     console.log(`✓ Message sent to ${message.shop_name}`);
@@ -242,7 +343,7 @@ class OutreachEngine {
                 await browserPage.close();
             }
         } catch (error: any) {
-            console.error(`Failed to send message: ${error.message}`);
+            console.error(`Failed to send message to ${message.shop_name}:`, error.message);
             return false;
         }
     }
@@ -351,53 +452,66 @@ class OutreachEngine {
     }
 
     /**
-     * Get available AdsPower profile (not rate limited)
+     * Add message template for variations
      */
-    private async getAvailableProfile(): Promise<AdsPowerProfile | null> {
-        try {
-            const profileResponse = await this.adspower.getProfiles();
+    addTemplate(template: { subject: string; body: string; category?: string }): string {
+        return this.messageVariator.addTemplate(template);
+    }
 
-            if (!profileResponse || !profileResponse.list || profileResponse.list.length === 0) {
-                return null;
-            }
+    /**
+     * Generate AI variations for template
+     */
+    async generateVariations(templateId: string, count: number): Promise<void> {
+        if (!this.config.enableVariations || !this.config.aiService) {
+            console.log('Message variations disabled or AI service not configured');
+            return;
+        }
 
-            // Check each profile for availability
-            for (const profile of profileResponse.list) {
-                const profileId = profile.profile_id || profile.id;
-                const usage = await this.db.checkAdsPowerUsage(profileId);
-
-                if (usage.canSend) {
-                    return { profile_id: profileId, ...profile };
-                }
-            }
-
-            return null;
-        } catch (error: any) {
-            console.error('Error getting available profile:', error);
-            return null;
+        for (let i = 0; i < count; i++) {
+            await this.messageVariator.generateVariation(templateId, this.config.aiService);
         }
     }
 
     /**
-     * Check if seller is in cooldown period
+     * Get message history
      */
-    async checkSellerCooldown(sellerId: number): Promise<boolean> {
-        const result = await this.db.get(`
-            SELECT contacted_at
-            FROM outreach_log
-            WHERE seller_id = ?
-            ORDER BY contacted_at DESC
-            LIMIT 1
-        `, [sellerId]);
+    getMessageHistory(): OutreachMessage[] {
+        // This would need to be implemented based on your database schema
+        return [];
+    }
 
-        if (!result) return false;
+    /**
+     * Export message history
+     */
+    exportHistory(filename: string): void {
+        const fs = require('fs');
+        const history = this.getMessageHistory();
+        fs.writeFileSync(filename, JSON.stringify(history, null, 2));
+        console.log(`💾 Message history exported to ${filename}`);
+    }
 
-        const lastContacted = new Date(result.contacted_at);
-        const cooldownDays = 120;
-        const cooldownUntil = new Date(lastContacted);
-        cooldownUntil.setDate(cooldownUntil.getDate() + cooldownDays);
+    /**
+     * Get rate limit stats for all profiles
+     */
+    getRateLimitStats(): Map<string, { sent: number; limit: number; resetIn: number }> {
+        return this.rateLimiter.getAllStats();
+    }
 
-        return cooldownUntil > new Date();
+    /**
+     * Get time window status
+     */
+    getTimeWindowStatus(): { allowed: boolean; reason?: string; nextAllowedTime?: Date } {
+        return this.timeChecker.canSendNow();
+    }
+
+    /**
+     * Get profile rotation status
+     */
+    getProfileRotationStatus(): { enabled: boolean; count: number; current?: string } {
+        return {
+            enabled: this.profileRotator.isRotationEnabled(),
+            count: this.profileRotator.getProfileCount()
+        };
     }
 
     /**

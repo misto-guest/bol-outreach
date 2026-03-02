@@ -210,7 +210,7 @@ App.Pages.research = {
 
     async loadAdsPowerProfiles() {
         try {
-            const response = await App.API.get('/adspower/profiles');
+            const response = await App.API.get('/api/adspower/profiles');
             const select = document.getElementById('adspowerProfile');
             
             if (response.data && response.data.length > 0) {
@@ -302,7 +302,7 @@ App.Pages.research = {
         
         this.statusInterval = setInterval(async () => {
             try {
-                const status = await App.API.get('/research/status');
+                const status = await App.API.get('/api/research/status');
                 
                 if (status.data.isActive) {
                     // Research is running, update progress

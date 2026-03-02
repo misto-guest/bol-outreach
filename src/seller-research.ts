@@ -4,9 +4,9 @@
  * Features: AdsPower integration, fixed pagination, better error handling
  */
 
-import puppeteer, { Browser, Page } from 'puppeteer-core';
-import Database from './database';
+import { Browser, Page } from 'puppeteer-core';
 import AdsPowerClient from './adspower-client';
+import Database from './database';
 
 // Types for seller information
 interface SellerInfo {
@@ -41,7 +41,7 @@ interface DiscoveryOptions {
         seller?: string;
         status: string;
     }) => void;
-    useAdsPowerProfile?: string | null;
+    adsPowerProfileId: string;
 }
 
 interface DiscoveryResults {
@@ -61,12 +61,11 @@ interface EnrichedSellerInfo {
 }
 
 class SellerResearch {
-    private db: Database;
-    private adspower: AdsPowerClient | null;
-    private baseUrl: string;
+    private readonly db: Database;
+    private readonly adspower: AdsPowerClient | null;
+    private readonly baseUrl: string;
     private isRunning: boolean;
     private shouldStop: boolean;
-    private useAdsPower: boolean;
 
     constructor(database: Database, adspowerClient: AdsPowerClient | null = null) {
         this.db = database;
@@ -74,21 +73,20 @@ class SellerResearch {
         this.baseUrl = 'https://www.bol.com';
         this.isRunning = false;
         this.shouldStop = false;
-        this.useAdsPower = !!adspowerClient;
     }
 
     /**
      * Start seller discovery for keywords
      * Enhanced with pagination fix and better seller extraction
      */
-    async discoverByKeywords(keywords: string[], options: DiscoveryOptions = {}): Promise<DiscoveryResults> {
+    async discoverByKeywords(keywords: string[], options: DiscoveryOptions): Promise<DiscoveryResults> {
         const {
             maxResults = 25,
             extractSellers = true,
             saveToDb = true,
             deepSearch = false,
             onProgress = null,
-            useAdsPowerProfile = null
+            adsPowerProfileId
         } = options;
 
         this.isRunning = true;
@@ -105,50 +103,11 @@ class SellerResearch {
         let page: Page | undefined;
 
         try {
-            // Launch browser (using AdsPower if available)
-            if (this.useAdsPower && useAdsPowerProfile) {
-                const adspowerResult = await this.adspower!.startProfile(useAdsPowerProfile, {
-                    headless: false
-                });
-                
-                if (adspowerResult && adspowerResult.ws) {
-                    // Connect to existing AdsPower browser
-                    browser = await puppeteer.connect({
-                        browserWSEndpoint: adspowerResult.ws.puppeteer
-                    });
-                    const pages = await browser.pages();
-                    page = pages[0] || await browser.newPage();
-                    console.log(`Connected to AdsPower profile: ${useAdsPowerProfile}`);
-                } else {
-                    throw new Error('Failed to connect to AdsPower profile');
-                }
-            } else {
-                // Launch regular browser
-                browser = await puppeteer.launch({
-                    headless: true,
-                    defaultViewport: { width: 1920, height: 1080 },
-                    args: [
-                        '--no-sandbox',
-                        '--disable-setuid-sandbox',
-                        '--disable-dev-shm-usage',
-                        '--disable-blink-features=AutomationControlled'
-                    ]
-                });
-                page = await browser.newPage();
-            }
-
-            // Set realistic user agent
-            await page!.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-            
-            // Set extra headers to avoid detection
-            await page!.setExtraHTTPHeaders({
-                'Accept-Language': 'nl-NL,nl;q=0.9,en-US;q=0.8,en;q=0.7',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1'
-            });
+            const adspowerResult = await this.adspower!.startProfile(adsPowerProfileId);
+            const browser = adspowerResult.browser;
+            const pages = await browser.pages();
+            page = pages[0] || await browser.newPage();
+            console.log(`Connected to AdsPower profile: ${adsPowerProfileId}`);
 
             // Handle cookie consent
             await this.handleCookieConsent(page!);
@@ -219,15 +178,9 @@ class SellerResearch {
             results.errors.push({ error: error.message, fatal: error.message });
             throw error;
         } finally {
-            // Close browser if we launched it (not AdsPower)
-            if (browser && !this.useAdsPower) {
-                await browser.close();
-            } else if (browser && this.useAdsPower && useAdsPowerProfile) {
-                // Don't close AdsPower browser, just disconnect
-                await browser.disconnect();
-                console.log('Disconnected from AdsPower profile');
-            }
-            
+            await page?.close();
+            await browser?.close();
+            console.log('Disconnected from AdsPower profile');
             this.isRunning = false;
         }
 

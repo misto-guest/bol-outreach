@@ -22,9 +22,6 @@ App.Pages.settings = {
                         <button class="btn btn-primary" onclick="App.Pages.settings.testAdsPowerConnection()">
                             <i class="fas fa-plug"></i> Test Connection
                         </button>
-                        <button class="btn btn-outline" onclick="App.Pages.settings.refreshProfiles()">
-                            <i class="fas fa-sync"></i> Refresh Profiles
-                        </button>
                     </div>
                 </div>
             </div>
@@ -168,42 +165,19 @@ App.Pages.settings = {
         });
 
         // Load AdsPower status
-        await this.checkAdsPowerStatus();
+        await this.testAdsPowerConnection();
     },
 
     async checkAdsPowerStatus() {
         try {
-            const response = await App.API.get('/adspower/profiles');
-
-            if (response.success && response.data && response.data.length > 0) {
+            const response = await App.API.get('/api/adspower/profiles');
+            if (response.success && response.data && response.data.list && response.data.list.length > 0) {
                 document.getElementById('adspowerStatus').innerHTML = `
-                    <div style="padding: 15px; background: var(--success-color); color: white; border-radius: 8px;">
+                    <div style="padding: 15px; background: var(--success-color); color: black; border-radius: 8px;">
                         <h4 style="margin-top: 0;"><i class="fas fa-check-circle"></i> AdsPower Connected</h4>
-                        <p style="margin-bottom: 0;">${response.data.length} profile(s) available</p>
-                    </div>
-
-                    <div style="margin-top: 20px;">
-                        <h5>Available Profiles</h5>
-                        <table style="margin-top: 10px;">
-                            <thead>
-                                <tr>
-                                    <th>Profile ID</th>
-                                    <th>Name</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${response.data.map(profile => `
-                                    <tr>
-                                        <td><code>${profile.profile_id || profile.id || 'N/A'}</code></td>
-                                        <td>${profile.name || profile.profile_name || 'Unnamed'}</td>
-                                        <td><span class="badge badge-success">Active</span></td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
                     </div>
                 `;
+                return true;
             } else {
                 document.getElementById('adspowerStatus').innerHTML = `
                     <div style="padding: 15px; background: var(--warning-color); color: black; border-radius: 8px;">
@@ -211,44 +185,28 @@ App.Pages.settings = {
                         <p style="margin-bottom: 0;">No profiles found. Please configure AdsPower integration.</p>
                     </div>
                 `;
+                return false;
             }
         } catch (error) {
             document.getElementById('adspowerStatus').innerHTML = `
-                <div style="padding: 15px; background: var(--danger-color); color: white; border-radius: 8px;">
+                <div style="padding: 15px; background: var(--danger-color); color: black; border-radius: 8px;">
                     <h4 style="margin-top: 0;"><i class="fas fa-times-circle"></i> AdsPower Not Connected</h4>
-                    <p style="margin-bottom: 0;">Failed to connect to AdsPower. Please check your configuration.</p>
+                    <p style="margin-bottom: 0;">Failed to connect to AdsPower. Please check your configuration. ${error}</p>
                 </div>
             `;
+            return false;
         }
     },
 
     async testAdsPowerConnection() {
-        try {
-            App.Utils.showLoading('Testing AdsPower connection...');
-
-            // Simulate connection test
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            App.Utils.hideLoading();
+        App.Utils.showLoading('Testing AdsPower connection...');
+        const result = await this.checkAdsPowerStatus();
+        if (result) {
             App.Utils.showToast('AdsPower connection successful!', 'success');
-
-            this.checkAdsPowerStatus();
-        } catch (error) {
-            App.Utils.hideLoading();
+        } else {
             App.Utils.showToast('AdsPower connection failed', 'error');
         }
-    },
-
-    async refreshProfiles() {
-        try {
-            App.Utils.showLoading('Refreshing profiles...');
-            await this.checkAdsPowerStatus();
-            App.Utils.hideLoading();
-            App.Utils.showToast('Profiles refreshed successfully!');
-        } catch (error) {
-            App.Utils.hideLoading();
-            App.Utils.showToast('Failed to refresh profiles', 'error');
-        }
+        App.Utils.hideLoading();
     },
 
     async saveSettings() {

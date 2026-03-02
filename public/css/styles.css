@@ -1023,6 +1023,25 @@ tr:hover td {
     animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 
+/* AdsPower Status Specific Styles */
+#adspowerStatusText {
+    font-weight: var(--font-medium);
+    color: var(--text-primary);
+    transition: color var(--transition-base);
+}
+
+.status-dot.active + #adspowerStatusText {
+    color: var(--success-700);
+}
+
+.status-dot.inactive + #adspowerStatusText {
+    color: var(--warning-700);
+}
+
+.status-dot.error + #adspowerStatusText {
+    color: var(--danger-700);
+}
+
 @keyframes ping {
     75%, 100% {
         transform: scale(2);

@@ -82,7 +82,7 @@ App.Pages.analytics = {
             const period = document.getElementById('analyticsPeriod').value;
 
             // Load stats
-            const statsResponse = await App.API.get('/stats');
+            const statsResponse = await App.API.get('/api/stats');
             this.displayStats(statsResponse.data);
 
             // Load campaigns
@@ -266,7 +266,7 @@ App.Pages.analytics = {
 
     async exportReport() {
         try {
-            const stats = await App.API.get('/stats');
+            const stats = await App.API.get('/api/stats');
             const campaigns = await App.API.get('/campaigns');
 
             const report = {
