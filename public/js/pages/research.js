@@ -210,15 +210,16 @@ App.Pages.research = {
 
     async loadAdsPowerProfiles() {
         try {
-            const response = await App.API.get('/api/adspower/profiles');
+            const response = await App.API.get('/adspower/profiles');
+            const profiles = response.data?.list || [];
             const select = document.getElementById('adspowerProfile');
             
-            if (response.data && response.data.length > 0) {
+            if (profiles.length > 0) {
                 select.innerHTML = '<option value="">Use Puppeteer (Default)</option>';
-                response.data.forEach(profile => {
+                profiles.forEach(profile => {
                     const option = document.createElement('option');
-                    option.value = profile.user_id;
-                    option.textContent = `${profile.user_name || profile.user_id} (${profile.user_id})`;
+                    option.value = profile.profile_id;
+                    option.textContent = `#${profile.profile_no}: ${profile.profile_id} (${profile.name})`;
                     select.appendChild(option);
                 });
                 console.log(`Loaded ${response.data.length} AdsPower profiles`);
@@ -302,7 +303,7 @@ App.Pages.research = {
         
         this.statusInterval = setInterval(async () => {
             try {
-                const status = await App.API.get('/api/research/status');
+                const status = await App.API.get('/research/status');
                 
                 if (status.data.isActive) {
                     // Research is running, update progress

@@ -117,8 +117,9 @@ const Utils = {
 
 // API Helper
 const API = {
+
     async request(endpoint, options = {}) {
-        const url = `${endpoint}`;
+        const url = `/api${endpoint}`;
         const defaults = {
             headers: {
                 'Content-Type': 'application/json'
@@ -322,7 +323,7 @@ const StatsUpdater = {
 
     async update() {
         try {
-            const response = await API.get('/api/stats');
+            const response = await API.get('/stats');
             AppState.data.stats = response.data;
 
             // Update approval badge

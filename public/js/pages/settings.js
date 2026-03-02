@@ -170,7 +170,7 @@ App.Pages.settings = {
 
     async checkAdsPowerStatus() {
         try {
-            const response = await App.API.get('/api/adspower/profiles');
+            const response = await App.API.get('/adspower/profiles');
             if (response.success && response.data && response.data.list && response.data.list.length > 0) {
                 document.getElementById('adspowerStatus').innerHTML = `
                     <div style="padding: 15px; background: var(--success-color); color: black; border-radius: 8px;">

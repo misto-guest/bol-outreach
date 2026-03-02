@@ -122,6 +122,37 @@ export interface DashboardStats {
 
 export interface AdsPowerProfile {
     profile_id: string
+    profile_no: number,
+    name: string
+    /*
+    name: 'tancnvirtulmentgap@gmx.com erpolivier@gmail.com',
+    created_time: '1772471657',
+    ip: '77.63.92.195',
+    ip_country: 'nl',
+    password: '',
+    fbcc_proxy_acc_id: '3',
+    ipchecker: '',
+    fakey: '',
+    user_proxy_config: {
+      proxy_soft: 'other',
+      proxy_type: 'http',
+      proxy_host: '185.14.187.8',
+      proxy_port: '8005',
+      proxy_user: 'admin',
+      proxy_password: 'cool',
+      proxy_url: '',
+      proxy_partner: '',
+      latest_ip: '77.63.92.195'
+    },
+    group_id: '0',
+    group_name: '',
+    remark: 'NL | Mobile | 8005\nor 8008',
+    last_open_time: '1772471776',
+    username: '',
+    platform: '',
+    category_id: '0',
+    profile_no: '336',
+    profile_id: 'k1a3ceha' */
 }
 
 export interface AdsPowerStartResult {

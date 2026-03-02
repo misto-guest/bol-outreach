@@ -121,7 +121,7 @@ App.Pages.dashboard = {
 
         async loadStats() {
         try {
-            const response = await App.API.get('/api/stats');
+            const response = await App.API.get('/stats');
             this.updateStats(response.data);
         } catch (error) {
             console.error('Failed to load stats:', error);
@@ -193,7 +193,7 @@ App.Pages.dashboard = {
 
     async checkAdsPowerStatus() {
         try {
-            const response = await App.API.get('/api/adspower/profiles');
+            const response = await App.API.get('/adspower/profiles');
             const statusDot = document.getElementById('adspowerStatus');
             const statusText = document.getElementById('adspowerStatusText');
 

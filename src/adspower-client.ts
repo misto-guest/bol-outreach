@@ -15,6 +15,8 @@ export interface AdsPowerConfig {
     timeout: number;
 }
 
+const adsPowerProfiles: AdsPowerProfile[] = [];
+
 class AdsPowerClient {
     private readonly endpoint: string;
 
@@ -22,18 +24,37 @@ class AdsPowerClient {
         this.endpoint = `http://${this.config.host}:${this.config.port}/api/v2/`;
     }
 
+    async loadProfiles() {
+        let page = 1;
+        const offset = 200;
+        while(true) {
+            const profiles = await this.__getProfiles(page, offset);
+            if (!profiles.success) throw new Error(profiles.error || 'Failed to get profiles');
+            adsPowerProfiles.push(...profiles.list);
+            if (profiles.list.length < offset) {
+                break;
+            }
+            page++;
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+    }
+
     /**
      * Get all profiles
      */
     async getProfiles(): Promise<{ success: boolean; list: AdsPowerProfile[]; error?: string }> {
+        return {
+            success: true,
+            list: adsPowerProfiles
+        };
+    }
+
+    private async __getProfiles(page: number = 1, limit: number = 50): Promise<{ success: boolean; list: AdsPowerProfile[]; error?: string }> {
         try {
             const listResponse = await fetch(`${this.endpoint}browser-profile/list`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    page: 1,
-                    limit: 50
-                })
+                body: JSON.stringify({page, limit})
             });
             const response = await listResponse.json() as any;
             if (response.code !== 0) throw new Error(response.msg)

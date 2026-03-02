@@ -321,7 +321,7 @@ App.Pages.sellers = {
 
                 try {
                     App.Utils.showLoading('Updating seller...');
-                    await App.API.patch(`/api/sellers/${id}/status`, { status: updates.status });
+                    await App.API.patch(`/sellers/${id}/status`, { status: updates.status });
                     App.Utils.hideLoading();
                     App.Utils.hideModal();
                     App.Utils.showToast('Seller updated successfully!');
@@ -338,7 +338,7 @@ App.Pages.sellers = {
 
     async markAsResearched(id) {
         try {
-            await App.API.patch(`/api/sellers/${id}/status`, { status: 'researched' });
+            await App.API.patch(`/sellers/${id}/status`, { status: 'researched' });
             App.Utils.showToast('Seller marked as researched!');
             this.loadSellers();
         } catch (error) {

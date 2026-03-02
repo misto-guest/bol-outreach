@@ -13,7 +13,6 @@ import AdsPowerClient from './adspower-client';
 import Database from './database';
 import OutreachEngine from './outreach-engine/outreach-engine';
 import SellerResearch from './seller-research';
-import { AdsPowerProfile } from './types';
 
 // Load environment variables from .env file
 require('dotenv').config();
@@ -59,12 +58,13 @@ async function startServer(): Promise<void> {
         console.log('✅ Research and outreach engines initialized');
 
         // Check AdsPower connection and load profiles
+        await adspower.loadProfiles();
         const profilesResult = await adspower.getProfiles();
         if (!profilesResult.success) console.error('⚠️  AdsPower connection failed' + profilesResult.error);
         if (!profilesResult.list.length) {
             console.error('⚠️  0 AdsPower profiles')
         } else {
-            console.log('✅ AdsPower connected');
+            console.log(`✅ AdsPower connected. Loaded ${profilesResult.list.length} profiles`);
         }
 
         // Try to start server on the configured port, with fallback
