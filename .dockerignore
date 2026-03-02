@@ -1,0 +1,67 @@
+# Node modules
+node_modules
+npm-debug.log
+
+# TypeScript
+*.ts
+!dist/**/*.ts
+*.d.ts.map
+
+# Build artifacts
+dist/public/js
+
+# Git
+.git
+.gitignore
+.github
+
+# Documentation
+docs
+*.md
+!README.md
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Data and logs
+data/
+*.db
+*.db-shm
+*.db-wal
+logs/
+*.log
+var/
+
+# Test files
+test/
+tests/
+*.test.js
+*.spec.js
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Deployment files
+deploy.sh
+deploy-check.sh
+quick-deploy.sh
+*.sh
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# CI/CD
+.railwayignore
+nixpacks.toml

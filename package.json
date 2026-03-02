@@ -7,8 +7,11 @@
     "doc": "docs"
   },
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "node src/server.js",
+    "start": "node dist/server.js",
+    "dev": "ts-node src/server.ts",
+    "build": "tsc && npm run copy-public-js",
+    "copy-public-js": "cp -r dist/public/js public/js 2>/dev/null || true",
+    "watch": "tsc --watch",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -16,10 +19,19 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@types/puppeteer-core": "^5.4.0",
     "body-parser": "^2.2.2",
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "puppeteer": "^24.37.2",
+    "puppeteer-core": "^24.37.5",
     "sql.js": "^1.14.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.3.2",
+    "@types/sql.js": "^1.4.9",
+    "nodemon": "^3.1.14",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   }
 }
