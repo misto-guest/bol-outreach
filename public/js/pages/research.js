@@ -34,11 +34,10 @@ App.Pages.research = {
                         <div class="form-group">
                             <label for="adspowerProfile">AdsPower Profile (Optional)</label>
                             <select id="adspowerProfile" class="form-control">
-                                <option value="">Use Puppeteer (Default)</option>
                             </select>
                             <small class="text-muted">
                                 <i class="fas fa-info-circle"></i> 
-                                Use AdsPower for anti-captcha protection. Leave empty to use Puppeteer directly.
+                                Use AdsPower for anti-captcha protection.
                             </small>
                         </div>
 
@@ -215,7 +214,6 @@ App.Pages.research = {
             const select = document.getElementById('adspowerProfile');
             
             if (profiles.length > 0) {
-                select.innerHTML = '<option value="">Use Puppeteer (Default)</option>';
                 profiles.forEach(profile => {
                     const option = document.createElement('option');
                     option.value = profile.profile_id;

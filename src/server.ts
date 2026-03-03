@@ -12,7 +12,7 @@ import path from 'path';
 import AdsPowerClient from './adspower-client';
 import Database from './database';
 import OutreachEngine from './outreach-engine/outreach-engine';
-import SellerResearch from './seller-research';
+import SellerResearch, { DiscoveryOptions } from './seller-research';
 
 // Load environment variables from .env file
 require('dotenv').config();
@@ -43,8 +43,8 @@ const adspower = new AdsPowerClient({
     timeout: 30000
 });
 
-let sellerResearch: any = null;
-let outreachEngine: any = null;
+let sellerResearch: SellerResearch | null = null;
+let outreachEngine: OutreachEngine | null = null;
 
 // Initialize and start server
 async function startServer(): Promise<void> {
@@ -583,6 +583,9 @@ app.get('/api/audit', async (req: Request, res: Response) => {
 app.post('/api/research/start', async (req: Request, res: Response) => {
     try {
         const { keywords, adspowerProfileId } = req.body;
+        if (!adspowerProfileId) {
+            return res.status(400).json({ success: false, error: 'AdsPower profile ID is required' });
+        }
 
         if (!sellerResearch) {
             return res.status(500).json({ success: false, error: 'Research engine not initialized' });
@@ -616,11 +619,12 @@ app.post('/api/research/start', async (req: Request, res: Response) => {
                 console.log(`\n===== Starting Seller Discovery =====`);
                 console.log(`Keywords: ${keywords.join(', ')}`);
 
-                const options = {
+                const options: DiscoveryOptions = {
                     maxResults: 25,
                     extractSellers: true,
                     saveToDb: true,
                     deepSearch: false,
+                    adsPowerProfileId: adspowerProfileId,
                     onProgress: (progress: any) => {
                         console.log(`Progress: ${progress.current}/${progress.total} - Found: ${progress.found} - Current: ${progress.keyword || 'N/A'}`);
                     }
@@ -628,7 +632,7 @@ app.post('/api/research/start', async (req: Request, res: Response) => {
 
                 // Use AdsPower profile if provided and available
                 console.log(`Using AdsPower profile: ${adspowerProfileId}`);
-                const results = await sellerResearch.discoverByKeywords(keywords, options, adspowerProfileId);
+                const results = await sellerResearch!.discoverByKeywords(keywords, options);
 
                 console.log(`\n===== Research Summary =====`);
                 console.log(`Total sellers found: ${results.totalFound}`);
@@ -667,7 +671,7 @@ app.post('/api/research/start', async (req: Request, res: Response) => {
             success: true,
             message: `Research started for ${keywords.length} keywords`,
             keywords: keywords,
-            usingAdsPower: !!adspowerProfileId
+            adspowerProfileId: adspowerProfileId
         });
     } catch (error) {
         console.error('Failed to start research:', error);
@@ -711,7 +715,7 @@ app.post('/api/outreach/execute', async (req: Request, res: Response) => {
         // Start outreach in background
         setImmediate(async () => {
             try {
-                const results = await outreachEngine.executeApprovedOutreach();
+                const results = await outreachEngine!.executeApprovedOutreach();
                 console.log(`Outreach completed: ${results.sent} sent, ${results.failed} failed`);
             } catch (error) {
                 console.error('Outreach error:', error);

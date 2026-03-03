@@ -9,7 +9,7 @@ import AdsPowerClient from './adspower-client';
 import Database from './database';
 
 // Types for seller information
-interface SellerInfo {
+export interface SellerInfo {
     shopName: string | null;
     shopUrl: string | null;
     sellerId: string | null;
@@ -28,7 +28,7 @@ interface SellerInfo {
     metadata?: any;
 }
 
-interface DiscoveryOptions {
+export interface DiscoveryOptions {
     maxResults?: number;
     extractSellers?: boolean;
     saveToDb?: boolean;
@@ -41,7 +41,7 @@ interface DiscoveryOptions {
         seller?: string;
         status: string;
     }) => void;
-    adsPowerProfileId: string;
+    adsPowerProfileId?: string;
 }
 
 interface DiscoveryResults {
@@ -103,7 +103,10 @@ class SellerResearch {
         let page: Page | undefined;
 
         try {
-            const adspowerResult = await this.adspower!.startProfile(adsPowerProfileId);
+            if (!this.adspower || !adsPowerProfileId) {
+                throw new Error('AdsPower client not available or profile ID not provided');
+            }
+            const adspowerResult = await this.adspower.startProfile(adsPowerProfileId);
             const browser = adspowerResult.browser;
             const pages = await browser.pages();
             page = pages[0] || await browser.newPage();
@@ -254,7 +257,7 @@ class SellerResearch {
         console.log(`🔍 Searching for: "${keyword}"`);
 
         // Navigate to search page directly
-        const searchUrl = `${this.baseUrl}/nl/search/?searchtext=${encodeURIComponent(keyword)}`;
+        const searchUrl = `${this.baseUrl}/nl/nl/s/?searchtext=${encodeURIComponent(keyword)}`;
         await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
         await this.randomDelay(2000, 3000);
 

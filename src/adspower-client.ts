@@ -75,7 +75,7 @@ class AdsPowerClient {
      * Start a browser profile
      */
     async startProfile(profileId: string): Promise<AdsPowerStartResult> {
-        const startResponse = await fetch(`${this.endpoint}/browser-profile/start`, {
+        const startResponse = await fetch(`${this.endpoint}browser-profile/start`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
