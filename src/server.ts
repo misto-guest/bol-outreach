@@ -679,11 +679,49 @@ app.post('/api/research/start', async (req: Request, res: Response) => {
     }
 });
 
-// Get research queue status
+// Get research queue status with pagination
 app.get('/api/research/queue', async (req: Request, res: Response) => {
     try {
-        const queue = await db.all('SELECT * FROM research_queue ORDER BY created_at DESC');
-        res.json({ success: true, data: queue });
+        const { page = '1', limit = '20', status } = req.query;
+        const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
+        
+        let sql = 'SELECT * FROM research_queue';
+        const params: any[] = [];
+        const conditions: string[] = [];
+
+        if (status) {
+            conditions.push('status = ?');
+            params.push(status);
+        }
+
+        if (conditions.length > 0) {
+            sql += ' WHERE ' + conditions.join(' AND ');
+        }
+
+        sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+        params.push(parseInt(limit as string), offset);
+
+        const queue = await db.all(sql, params);
+
+        // Get total count for pagination
+        let countSql = 'SELECT COUNT(*) as total FROM research_queue';
+        const countParams: any[] = [];
+        if (conditions.length > 0) {
+            countSql += ' WHERE ' + conditions.join(' AND ');
+        }
+        const countResult = await db.get(countSql, countParams);
+        const total = countResult?.total || 0;
+
+        res.json({ 
+            success: true, 
+            data: queue,
+            pagination: {
+                page: parseInt(page as string),
+                limit: parseInt(limit as string),
+                total,
+                pages: Math.ceil(total / parseInt(limit as string))
+            }
+        });
     } catch (error) {
         res.status(500).json({ success: false, error: (error as Error).message });
     }

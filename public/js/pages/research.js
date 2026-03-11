@@ -480,10 +480,16 @@ App.Pages.research = {
         `).join('');
     },
 
-    async loadQueue() {
+    async loadQueue(page = 1, limit = 20, status = 'all') {
         try {
-            const response = await App.API.get('/research/queue');
+            const params = new URLSearchParams({ page: page.toString(), limit: limit.toString() });
+            if (status !== 'all') {
+                params.append('status', status);
+            }
+            
+            const response = await App.API.get(`/research/queue?${params.toString()}`);
             const queue = response.data;
+            const pagination = response.pagination;
 
             const queueDiv = document.getElementById('researchQueue');
             if (!queueDiv) return;
@@ -514,7 +520,28 @@ App.Pages.research = {
                 </div>
             `).join('');
 
-            queueDiv.innerHTML = queueHtml;
+            // Build pagination controls
+            const paginationHtml = this.buildPaginationControls(pagination, status);
+
+            queueDiv.innerHTML = `
+                <div class="queue-controls" style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
+                    <div class="filter-group">
+                        <label>Filter by Status:</label>
+                        <select id="queueStatusFilter" class="form-control" style="width: auto;" onchange="App.Pages.research.loadQueue(1, 20, this.value)">
+                            <option value="all" ${status === 'all' ? 'selected' : ''}>All Status</option>
+                            <option value="pending" ${status === 'pending' ? 'selected' : ''}>Pending</option>
+                            <option value="running" ${status === 'running' ? 'selected' : ''}>Running</option>
+                            <option value="completed" ${status === 'completed' ? 'selected' : ''}>Completed</option>
+                            <option value="failed" ${status === 'failed' ? 'selected' : ''}>Failed</option>
+                        </select>
+                    </div>
+                    <div class="pagination-info" style="color: var(--text-secondary); font-size: 12px;">
+                        Showing ${((page - 1) * limit) + 1} - ${Math.min(page * limit, pagination.total)} of ${pagination.total} items
+                    </div>
+                </div>
+                ${queueHtml}
+                ${paginationHtml}
+            `;
             
             // Check if any research is completed and load results
             const completed = queue.filter(item => item.status === 'completed');
@@ -524,6 +551,41 @@ App.Pages.research = {
         } catch (error) {
             console.error('Failed to load research queue:', error);
         }
+    },
+
+    buildPaginationControls(pagination, currentStatus) {
+        if (pagination.pages <= 1) return '';
+
+        const pageButtons = [];
+        const startPage = Math.max(1, pagination.page - 2);
+        const endPage = Math.min(pagination.pages, pagination.page + 2);
+
+        // Previous button
+        if (pagination.page > 1) {
+            pageButtons.push(`<button class="btn btn-outline btn-sm" onclick="App.Pages.research.loadQueue(${pagination.page - 1}, 20, '${currentStatus}')">
+                <i class="fas fa-chevron-left"></i> Previous
+            </button>`);
+        }
+
+        // Page numbers
+        for (let i = startPage; i <= endPage; i++) {
+            pageButtons.push(`<button class="btn btn-${i === pagination.page ? 'primary' : 'outline'} btn-sm" onclick="App.Pages.research.loadQueue(${i}, 20, '${currentStatus}')">
+                ${i}
+            </button>`);
+        }
+
+        // Next button
+        if (pagination.page < pagination.pages) {
+            pageButtons.push(`<button class="btn btn-outline btn-sm" onclick="App.Pages.research.loadQueue(${pagination.page + 1}, 20, '${currentStatus}')">
+                Next <i class="fas fa-chevron-right"></i>
+            </button>`);
+        }
+
+        return `
+            <div class="pagination-controls" style="margin-top: 15px; display: flex; justify-content: center; gap: 5px; flex-wrap: wrap;">
+                ${pageButtons.join('')}
+            </div>
+        `;
     },
 
     async loadCompletedSellers() {
