@@ -7,6 +7,7 @@
 import { Browser, Page } from 'puppeteer-core';
 import AdsPowerClient from './adspower-client';
 import Database from './database';
+import { ResearchProgress, SellerStatus } from './types';
 
 // Types for seller information
 export interface SellerInfo {
@@ -25,7 +26,7 @@ export interface SellerInfo {
     keyword?: string;
     status?: string;
     productUrl?: string;
-    metadata?: any;
+    metadata?: Record<string, unknown>;
 }
 
 export interface DiscoveryOptions {
@@ -33,14 +34,7 @@ export interface DiscoveryOptions {
     extractSellers?: boolean;
     saveToDb?: boolean;
     deepSearch?: boolean;
-    onProgress?: (progress: {
-        current: number;
-        total: number;
-        keyword?: string;
-        found: number;
-        seller?: string;
-        status: string;
-    }) => void;
+    onProgress?: (progress: ResearchProgress) => void;
     adsPowerProfileId?: string;
 }
 
@@ -85,7 +79,7 @@ class SellerResearch {
             extractSellers = true,
             saveToDb = true,
             deepSearch = false,
-            onProgress = null,
+            onProgress = undefined,
             adsPowerProfileId
         } = options;
 
@@ -160,14 +154,14 @@ class SellerResearch {
                                     status: 'found'
                                 });
                             }
-                        } catch (sellerError: any) {
-                            console.error(`Error processing seller "${seller.shopName}":`, sellerError.message);
-                            results.errors.push({ seller: seller.shopName!, error: sellerError.message });
+                        } catch (sellerError: unknown) {
+                            console.error(`Error processing seller "${seller.shopName}":`, (sellerError as Error).message);
+                            results.errors.push({ seller: seller.shopName!, error: (sellerError as Error).message });
                         }
                     }
-                } catch (error: any) {
-                    console.error(`Error processing keyword "${keyword}":`, error.message);
-                    results.errors.push({ keyword, error: error.message });
+                } catch (error: unknown) {
+                    console.error(`Error processing keyword "${keyword}":`, (error as Error).message);
+                    results.errors.push({ keyword, error: (error as Error).message });
                 }
 
                 // Add delay between keywords to avoid rate limiting
@@ -176,9 +170,9 @@ class SellerResearch {
                 }
             }
 
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Fatal error during research:', error);
-            results.errors.push({ error: error.message, fatal: error.message });
+            results.errors.push({ error: (error as Error).message, fatal: (error as Error).message });
             throw error;
         } finally {
             await page?.close();
@@ -245,15 +239,15 @@ class SellerResearch {
             }
 
             console.log('ℹ️ No cookie consent dialog found (may have been accepted already)');
-        } catch (error: any) {
-            console.log('ℹ️ Cookie consent handling:', error.message);
+        } catch (error: unknown) {
+            console.log('ℹ️ Cookie consent handling:', (error as Error).message);
         }
     }
 
     /**
      * Search for sellers by keyword - Enhanced with fixed pagination
      */
-    private async searchForKeyword(page: Page, keyword: string, maxResults: number, deepSearch: boolean, onProgress: any): Promise<SellerInfo[]> {
+    private async searchForKeyword(page: Page, keyword: string, maxResults: number, deepSearch: boolean, onProgress: ((progress: ResearchProgress) => void) | undefined): Promise<SellerInfo[]> {
         console.log(`🔍 Searching for: "${keyword}"`);
 
         // Navigate to search page directly
@@ -296,7 +290,7 @@ class SellerResearch {
                     for (let i = 0; i < elements.length; i++) {
                         // @ts-ignore
                         const el = elements[i];
-                        const href = (el as any).href;
+                        const href = (el as unknown as { href: string }).href;
                         if (href && !seenUrls.has(href) && href.includes('/p/')) {
                             seenUrls.add(href);
                             links.push(href);
@@ -324,14 +318,16 @@ class SellerResearch {
                         
                         if (onProgress) {
                             onProgress({
+                                current: sellers.length,
+                                total: maxResults,
                                 found: sellers.length,
                                 seller: seller.shopName!,
                                 status: 'extracted'
                             });
                         }
                     }
-                } catch (error: any) {
-                    console.error(`    ✗ Error extracting from ${productUrl}:`, error.message);
+                } catch (error: unknown) {
+                    console.error(`    ✗ Error extracting from ${productUrl}:`, (error as Error).message);
                 }
 
                 // Small delay between product visits
@@ -377,8 +373,8 @@ class SellerResearch {
                 window.scrollTo(0, document.body.scrollHeight);
             });
             await this.randomDelay(1000, 1500);
-        } catch (error: any) {
-            console.log('Scroll warning:', error.message);
+        } catch (error: unknown) {
+            console.log('Scroll warning:', (error as Error).message);
         }
     }
 
@@ -435,7 +431,7 @@ class SellerResearch {
                     if (text && text.length > 0 && text.length < 100) {
                         info.shopName = text;
                         // @ts-ignore
-                        const href = (el as any).href;
+                        const href = (el as unknown as { href: string }).href;
                         if (href && (href.includes('/shop/') || href.includes('/winkel/'))) {
                             info.shopUrl = href;
                         }
@@ -452,7 +448,7 @@ class SellerResearch {
                     // @ts-ignore
                     const link = sellerLinkElements[i];
                     // @ts-ignore
-                    const href = (link as any).href;
+                    const href = (link as unknown as { href: string }).href;
                     if (href && !href.includes('/reviews') && !href.includes('/product')) {
                         info.shopUrl = href;
                         if (!info.shopName) {
@@ -540,7 +536,7 @@ class SellerResearch {
                     // @ts-ignore
                     const link = emailLinks[i];
                     // @ts-ignore
-                    const email = (link as any).href.replace('mailto:', '').trim();
+                    const email = (link as unknown as { href: string }).href.replace('mailto:', '').trim();
                     if (email.includes('@') && !email.includes('example')) {
                         info.contactEmail = email;
                         break;
@@ -613,8 +609,8 @@ class SellerResearch {
 
             Object.assign(seller, enrichedInfo);
             console.log(`  ✓ Enriched: ${seller.contactEmail ? 'email found' : 'no email'}`);
-        } catch (error: any) {
-            console.error(`    ✗ Error enriching ${seller.shopName}:`, error.message);
+        } catch (error: unknown) {
+            console.error(`    ✗ Error enriching ${seller.shopName}:`, (error as Error).message);
         }
     }
 
@@ -666,8 +662,8 @@ class SellerResearch {
             console.log('  ✓ Moved to next page (via URL)');
             return true;
 
-        } catch (error: any) {
-            console.log('  ℹ️ No next page found:', error.message);
+        } catch (error: unknown) {
+            console.log('  ℹ️ No next page found:', (error as Error).message);
             return false;
         }
     }
@@ -685,7 +681,7 @@ class SellerResearch {
                 rating: seller.rating,
                 total_products: seller.totalProducts ? parseInt(seller.totalProducts) || null : null,
                 contact_email: seller.contactEmail,
-                status: (seller.status as any) || 'new',
+                status: (seller.status as SellerStatus) || 'new',
                 metadata: JSON.stringify({
                     businessName: seller.businessName,
                     kvkNumber: seller.kvkNumber,
@@ -697,11 +693,11 @@ class SellerResearch {
                 })
             });
             console.log(`  ✓ Saved seller: ${seller.shopName}`);
-        } catch (error: any) {
-            if (error.message.includes('UNIQUE constraint')) {
+        } catch (error: unknown) {
+            if ((error as Error).message.includes('UNIQUE constraint')) {
                 console.log(`  ℹ️ Seller already exists: ${seller.shopName}`);
             } else {
-                console.error(`  ✗ Error saving seller:`, error.message);
+                console.error(`  ✗ Error saving seller:`, (error as Error).message);
             }
         }
     }

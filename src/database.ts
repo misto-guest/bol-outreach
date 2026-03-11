@@ -6,17 +6,25 @@
 
 import fs from 'fs';
 import path from 'path';
-import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
+import initSqlJs, { Database as SqlJsDatabase, SqlJsStatic } from 'sql.js';
 import {
     Campaign,
     DashboardStats,
     MessageTemplate,
+    OutreachQueueItem,
+    PendingApproval,
     Seller
 } from './types';
 
+// Type for query parameters
+type QueryParams = unknown[];
+
+// Type for query results
+type QueryResult = Record<string, unknown>;
+
 class Database {
     public db: SqlJsDatabase | null;
-    public SQL: any;
+    public SQL: SqlJsStatic | null;
     public dbPath: string;
 
     constructor(dbPath: string = path.join(__dirname, '../data/bol-outreach.db')) {
@@ -210,13 +218,13 @@ class Database {
     /**
      * Run a SQL query
      */
-    run(sql: string, params: any[] = []): { id: number | null; changes: number } {
+    run(sql: string, params: QueryParams = []): { id: number | null; changes: number } {
         if (!this.db) {
             throw new Error('Database not initialized');
         }
 
         try {
-            this.db.run(sql, params);
+            this.db.run(sql, params as (string | number | null | Uint8Array)[]);
             this.saveToFile();
             // Get lastInsertId
             const result = this.db.exec('SELECT last_insert_rowid() as id');
@@ -230,17 +238,17 @@ class Database {
     /**
      * Get a single row
      */
-    get(sql: string, params: any[] = []): any {
+    get(sql: string, params: QueryParams = []): QueryResult | null {
         if (!this.db) {
             throw new Error('Database not initialized');
         }
 
         try {
             const stmt = this.db.prepare(sql);
-            stmt.bind(params);
+            stmt.bind(params as (string | number | null | Uint8Array)[]);
             const result = stmt.getAsObject({}) || null;
             stmt.free();
-            return result;
+            return result as QueryResult;
         } catch (err) {
             throw err;
         }
@@ -249,17 +257,17 @@ class Database {
     /**
      * Get all rows
      */
-    all(sql: string, params: any[] = []): any[] {
+    all(sql: string, params: QueryParams = []): QueryResult[] {
         if (!this.db) {
             throw new Error('Database not initialized');
         }
 
         try {
             const stmt = this.db.prepare(sql);
-            stmt.bind(params);
-            const results: any[] = [];
+            stmt.bind(params as (string | number | null | Uint8Array)[]);
+            const results: QueryResult[] = [];
             while (stmt.step()) {
-                results.push(stmt.getAsObject());
+                results.push(stmt.getAsObject() as QueryResult);
             }
             stmt.free();
             return results;
@@ -294,15 +302,15 @@ class Database {
     /**
      * Get sellers by status
      */
-    async getSellersByStatus(status: string, limit: number = 100): Promise<any[]> {
+    async getSellersByStatus(status: string, limit: number = 100): Promise<Seller[]> {
         const sql = `SELECT * FROM sellers WHERE status = ? ORDER BY discovered_at DESC LIMIT ?`;
-        return this.all(sql, [status, limit]);
+        return this.all(sql, [status, limit]) as unknown as Seller[];
     }
 
     /**
      * Get sellers not contacted in cooldown period
      */
-    async getSellersForOutreach(limit: number = 50): Promise<any[]> {
+    async getSellersForOutreach(limit: number = 50): Promise<Seller[]> {
         const sql = `
       SELECT DISTINCT s.* FROM sellers s
       LEFT JOIN outreach_log ol ON s.id = ol.seller_id
@@ -311,7 +319,7 @@ class Database {
       ORDER BY s.discovered_at ASC
       LIMIT ?
     `;
-        return this.all(sql, [limit]);
+        return this.all(sql, [limit]) as unknown as Seller[];
     }
 
     /**
@@ -356,7 +364,7 @@ class Database {
     /**
      * Add to approval queue
      */
-    async addToApprovalQueue(outreachData: any): Promise<{ id: number | null; changes: number }> {
+    async addToApprovalQueue(outreachData: OutreachQueueItem): Promise<{ id: number | null; changes: number }> {
         const sql = `
       INSERT INTO outreach_log (seller_id, campaign_id, message_sent, adspower_profile_id, status)
       VALUES (?, ?, ?, ?, 'pending')
@@ -372,7 +380,7 @@ class Database {
     /**
      * Get pending approvals
      */
-    async getPendingApprovals(): Promise<any[]> {
+    async getPendingApprovals(): Promise<PendingApproval[]> {
         const sql = `
       SELECT ol.*, s.shop_name, s.shop_url, c.name as campaign_name
       FROM outreach_log ol
@@ -381,7 +389,7 @@ class Database {
       WHERE ol.approval_status = 'pending'
       ORDER BY ol.created_at ASC
     `;
-        return this.all(sql);
+        return this.all(sql) as unknown as Promise<PendingApproval[]>;
     }
 
     /**
@@ -401,7 +409,7 @@ class Database {
      */
     async checkAdsPowerUsage(profileId: string): Promise<{ canSend: boolean; messagesToday: number; cooldown: boolean; cooldownUntil?: string }> {
         const sql = `SELECT * FROM adspower_usage WHERE profile_id = ?`;
-        let usage = this.get(sql, [profileId]);
+        let usage = this.get(sql, [profileId]) as Record<string, unknown> | null;
 
         const today = new Date().toISOString().split('T')[0];
 
@@ -415,15 +423,18 @@ class Database {
         }
 
         // Check if cooldown is active
-        if (usage.cooldown_until) {
-            const cooldownUntil = new Date(usage.cooldown_until);
+        const cooldownUntilVal = usage.cooldown_until as string | null | undefined;
+        if (cooldownUntilVal) {
+            const cooldownUntil = new Date(cooldownUntilVal);
             if (cooldownUntil > new Date()) {
-                return { canSend: false, messagesToday: usage.messages_sent_today, cooldown: true, cooldownUntil: usage.cooldown_until };
+                const messagesToday = usage.messages_sent_today as number;
+                return { canSend: false, messagesToday, cooldown: true, cooldownUntil: cooldownUntilVal };
             }
         }
 
         // Reset daily counter if needed
-        if (usage.last_reset !== today) {
+        const lastReset = usage.last_reset as string;
+        if (lastReset !== today) {
             this.run(
                 `UPDATE adspower_usage SET messages_sent_today = 0, last_reset = ? WHERE profile_id = ?`,
                 [today, profileId]
@@ -432,11 +443,12 @@ class Database {
         }
 
         // Check daily limit
-        const canSend = usage.messages_sent_today < 2;
+        const messagesSentToday = usage.messages_sent_today as number;
+        const canSend = messagesSentToday < 2;
 
         return {
             canSend,
-            messagesToday: usage.messages_sent_today,
+            messagesToday: messagesSentToday,
             cooldown: false
         };
     }
@@ -457,8 +469,8 @@ class Database {
     `, [today, profileId]);
 
         // Check if daily limit reached, set cooldown
-        const usage = this.get(`SELECT messages_sent_today FROM adspower_usage WHERE profile_id = ?`, [profileId]);
-        if (usage && usage.messages_sent_today >= 2) {
+        const usage = this.get(`SELECT messages_sent_today FROM adspower_usage WHERE profile_id = ?`, [profileId]) as Record<string, unknown> | null;
+        if (usage && (usage.messages_sent_today as number) >= 2) {
             const cooldownUntil = new Date();
             cooldownUntil.setDate(cooldownUntil.getDate() + 120); // 120 day cooldown
 
@@ -473,7 +485,7 @@ class Database {
     /**
      * Log audit event
      */
-    async logAudit(action: string, entityType: string, entityId: number | null, userId: string, details: any = {}): Promise<void> {
+    async logAudit(action: string, entityType: string, entityId: number | null, userId: string, details: Record<string, unknown> = {}): Promise<void> {
         const sql = `
       INSERT INTO audit_log (action, entity_type, entity_id, user_id, details)
       VALUES (?, ?, ?, ?, ?)

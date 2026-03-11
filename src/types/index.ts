@@ -3,7 +3,7 @@
  */
 
 import { Browser } from 'puppeteer-core';
-import { Database as SqlJsDatabase } from 'sql.js';
+import { Database as SqlJsDatabase, SqlJsStatic } from 'sql.js';
 
 // ============= Database Types =============
 
@@ -23,6 +23,9 @@ export interface Seller {
     created_at?: string;
     updated_at?: string;
 }
+
+// Type alias for seller status
+export type SellerStatus = 'new' | 'researched' | 'contacted';
 
 export interface Campaign {
     id?: number;
@@ -157,7 +160,13 @@ export interface AdsPowerProfile {
 
 export interface AdsPowerStartResult {
     wsEndpoint: string;
+    puppeteerEndpoint?: string; // Alias for wsEndpoint for backwards compatibility
     browser: Browser;
+}
+
+export interface AdsPowerApiData {
+    list?: AdsPowerProfile[];
+    ws?: { puppeteer: string };
 }
 
 export interface AdsPowerApiResponse {
@@ -165,7 +174,7 @@ export interface AdsPowerApiResponse {
     ret_code?: number;
     msg?: string;
     message?: string;
-    data?: any;
+    data?: AdsPowerApiData;
 }
 
 // ============= Seller Research Types =============
@@ -261,25 +270,39 @@ export interface ApiError {
 
 export interface DatabaseInterface {
     db: SqlJsDatabase | null;
-    SQL: any;
+    SQL: SqlJsStatic | null;
     dbPath: string;
     init(): Promise<void>;
     saveToFile(): void;
     createTables(): Promise<void>;
-    run(sql: string, params?: any[]): { id: number | null; changes: number } | Promise<{ id: number | null; changes: number }>;
-    get(sql: string, params?: any[]): any;
-    all(sql: string, params?: any[]): any[];
+    run(sql: string, params?: unknown[]): { id: number | null; changes: number } | Promise<{ id: number | null; changes: number }>;
+    get(sql: string, params?: unknown[]): Record<string, unknown> | null;
+    all(sql: string, params?: unknown[]): Record<string, unknown>[];
     insertSeller(sellerData: Partial<Seller>): Promise<{ id: number | null; changes: number }>;
-    getSellersByStatus(status: string, limit?: number): Promise<any[]>;
-    getSellersForOutreach(limit?: number): Promise<any[]>;
+    getSellersByStatus(status: string, limit?: number): Promise<Seller[]>;
+    getSellersForOutreach(limit?: number): Promise<Seller[]>;
     createCampaign(campaignData: Partial<Campaign>): Promise<{ id: number | null; changes: number }>;
     createTemplate(templateData: Partial<MessageTemplate>): Promise<{ id: number | null; changes: number }>;
-    addToApprovalQueue(outreachData: any): Promise<{ id: number | null; changes: number }>;
-    getPendingApprovals(): Promise<any[]>;
+    addToApprovalQueue(outreachData: OutreachQueueItem): Promise<{ id: number | null; changes: number }>;
+    getPendingApprovals(): Promise<PendingApproval[]>;
     updateApproval(logId: number, status: string, approvedBy?: string | null): Promise<{ id: number | null; changes: number }>;
     checkAdsPowerUsage(profileId: string): Promise<{ canSend: boolean; messagesToday: number; cooldown: boolean; cooldownUntil?: string }>;
     recordMessageSent(profileId: string): Promise<void>;
-    logAudit(action: string, entityType: string, entityId: number | null, userId: string, details?: any): Promise<void>;
+    logAudit(action: string, entityType: string, entityId: number | null, userId: string, details?: Record<string, unknown>): Promise<void>;
     getDashboardStats(): Promise<DashboardStats>;
     close(): void;
+}
+
+// Types for approval queue
+export interface OutreachQueueItem {
+    seller_id: number;
+    campaign_id: number;
+    message: string;
+    adspower_profile_id?: string;
+}
+
+export interface PendingApproval extends OutreachLog {
+    shop_name: string;
+    shop_url: string;
+    campaign_name: string;
 }

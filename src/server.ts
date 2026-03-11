@@ -6,6 +6,7 @@
 
 import express, { NextFunction, Request, Response } from 'express';
 import fs from 'fs';
+import { AddressInfo } from 'net';
 import path from 'path';
 
 // Import modules
@@ -13,6 +14,10 @@ import AdsPowerClient from './adspower-client';
 import Database from './database';
 import OutreachEngine from './outreach-engine/outreach-engine';
 import SellerResearch, { DiscoveryOptions } from './seller-research';
+import { ResearchProgress, Seller } from './types';
+
+// Type for query params
+type QueryParams = unknown[];
 
 // Load environment variables from .env file
 require('dotenv').config();
@@ -70,12 +75,12 @@ async function startServer(): Promise<void> {
         // Try to start server on the configured port, with fallback
         const server = app.listen(Number(PORT), '0.0.0.0')
             .on('listening', () => {
-                const address = server.address();
-                const actualPort = (address as any).port;
+                const address = server.address() as AddressInfo;
+                const actualPort = address.port;
                 console.log(`\n🚀 Bol.com Seller Intelligence Platform running on http://0.0.0.0:${actualPort}`);
                 console.log(`📊 Dashboard: http://localhost:${actualPort}\n`);
             })
-            .on('error', (err: any) => {
+            .on('error', (err: NodeJS.ErrnoException) => {
                 if (err.code === 'EADDRINUSE') {
                     console.error(`❌ Port ${PORT} is already in use!`);
                     console.error(`💡 Try using a different port: PORT=${parseInt(PORT as string) + 1} npm start`);
@@ -114,12 +119,12 @@ app.get('/api/stats', async (req: Request, res: Response) => {
 app.get('/api/sellers', async (req: Request, res: Response) => {
     try {
         const { status, limit = '100' } = req.query;
-        let sellers: any[];
+        let sellers: Seller[];
 
         if (status) {
             sellers = await db.getSellersByStatus(status as string, parseInt(limit as string));
         } else {
-            sellers = await db.all('SELECT * FROM sellers ORDER BY discovered_at DESC LIMIT ?', [parseInt(limit as string)]);
+            sellers = await db.all('SELECT * FROM sellers ORDER BY discovered_at DESC LIMIT ?', [parseInt(limit as string)]) as unknown as Seller[];
         }
 
         res.json({ success: true, data: sellers });
@@ -135,7 +140,7 @@ app.get('/api/sellers/:id', async (req: Request, res: Response) => {
         console.log(`Fetching seller details for ID: ${sellerId}`);
 
         // Try to find by numeric ID or seller_id string
-        let seller: any = null;
+        let seller: Record<string, unknown> | null = null;
 
         // First try numeric ID
         if (!isNaN(parseInt(sellerId))) {
@@ -159,7 +164,7 @@ app.get('/api/sellers/:id', async (req: Request, res: Response) => {
         // Parse metadata if exists
         if (seller.metadata) {
             try {
-                seller.metadata = JSON.parse(seller.metadata);
+                seller.metadata = JSON.parse(seller.metadata as string);
             } catch (e) {
                 seller.metadata = {};
             }
@@ -325,10 +330,10 @@ app.get('/api/templates', async (req: Request, res: Response) => {
         const templates = await db.all('SELECT * FROM message_templates WHERE is_active = 1 ORDER BY created_at DESC');
 
         // Parse variables JSON
-        templates.forEach((t: any) => {
+        templates.forEach((t: Record<string, unknown>) => {
             if (t.variables) {
                 try {
-                    t.variables = JSON.parse(t.variables);
+                    t.variables = JSON.parse(t.variables as string);
                 } catch (e) {
                     t.variables = [];
                 }
@@ -352,7 +357,7 @@ app.get('/api/templates/:id', async (req: Request, res: Response) => {
 
         if (template.variables) {
             try {
-                template.variables = JSON.parse(template.variables);
+                template.variables = JSON.parse(template.variables as string);
             } catch (e) {
                 template.variables = [];
             }
@@ -479,7 +484,13 @@ app.post('/api/campaigns/:id/sellers', async (req: Request, res: Response, next:
         }
 
         // Add outreach records for each seller
-        const results: any[] = [];
+        interface SellerAddResult {
+            sellerId: number;
+            success: boolean;
+            id?: number;
+            error?: string;
+        }
+        const results: SellerAddResult[] = [];
         for (const sellerId of sellerIds) {
             try {
                 // Verify seller exists
@@ -492,13 +503,15 @@ app.post('/api/campaigns/:id/sellers', async (req: Request, res: Response, next:
                 // Create personalized message
                 let personalizedMessage = messageContent;
                 if (seller.shop_name) {
-                    personalizedMessage = personalizedMessage.replace(/\{\{shop_name\}\}/g, seller.shop_name);
+                    personalizedMessage = personalizedMessage.replace(/\{\{shop_name\}\}/g, String(seller.shop_name));
                 }
-                if ((seller as any).company_name) {
-                    personalizedMessage = personalizedMessage.replace(/\{\{company_name\}\}/g, (seller as any).company_name || seller.shop_name);
+                // Check for company_name in metadata
+                if (seller.metadata && typeof seller.metadata === 'object' && 'company_name' in seller.metadata) {
+                    const companyName = (seller.metadata as Record<string, unknown>).company_name as string;
+                    personalizedMessage = personalizedMessage.replace(/\{\{company_name\}\}/g, companyName || String(seller.shop_name));
                 }
                 if (seller.rating) {
-                    personalizedMessage = personalizedMessage.replace(/\{\{rating\}\}/g, seller.rating);
+                    personalizedMessage = personalizedMessage.replace(/\{\{rating\}\}/g, String(seller.rating));
                 }
 
                 const result = await db.run(`
@@ -506,7 +519,7 @@ app.post('/api/campaigns/:id/sellers', async (req: Request, res: Response, next:
           VALUES (?, ?, ?, ?, ?)
         `, [sellerId, campaignId, 'pending', approvalStatus, personalizedMessage]);
 
-                results.push({ sellerId, success: true, id: result.id });
+                results.push({ sellerId, success: true, id: result.id ?? undefined });
             } catch (error) {
                 results.push({ sellerId, success: false, error: (error as Error).message });
             }
@@ -538,15 +551,15 @@ app.get('/api/audit', async (req: Request, res: Response) => {
         const { limit = '100', entityType, entityId } = req.query;
 
         let sql = 'SELECT * FROM audit_log';
-        const params: any[] = [];
+        const params: (string | number)[] = [];
         const conditions: string[] = [];
 
-        if (entityType) {
+        if (entityType && typeof entityType === 'string') {
             conditions.push('entity_type = ?');
             params.push(entityType);
         }
 
-        if (entityId) {
+        if (entityId && typeof entityId === 'string') {
             conditions.push('entity_id = ?');
             params.push(entityId);
         }
@@ -561,10 +574,10 @@ app.get('/api/audit', async (req: Request, res: Response) => {
         const logs = await db.all(sql, params);
 
         // Parse details JSON
-        logs.forEach((log: any) => {
+        logs.forEach((log: Record<string, unknown>) => {
             if (log.details) {
                 try {
-                    log.details = JSON.parse(log.details);
+                    log.details = JSON.parse(log.details as string);
                 } catch (e) {
                     // Keep as string
                 }
@@ -625,7 +638,7 @@ app.post('/api/research/start', async (req: Request, res: Response) => {
                     saveToDb: true,
                     deepSearch: false,
                     adsPowerProfileId: adspowerProfileId,
-                    onProgress: (progress: any) => {
+                    onProgress: (progress: ResearchProgress) => {
                         console.log(`Progress: ${progress.current}/${progress.total} - Found: ${progress.found} - Current: ${progress.keyword || 'N/A'}`);
                     }
                 };
@@ -686,12 +699,12 @@ app.get('/api/research/queue', async (req: Request, res: Response) => {
         const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
         
         let sql = 'SELECT * FROM research_queue';
-        const params: any[] = [];
+        const params: (string | number)[] = [];
         const conditions: string[] = [];
 
         if (status) {
             conditions.push('status = ?');
-            params.push(status);
+            params.push(status as string);
         }
 
         if (conditions.length > 0) {
@@ -705,12 +718,12 @@ app.get('/api/research/queue', async (req: Request, res: Response) => {
 
         // Get total count for pagination
         let countSql = 'SELECT COUNT(*) as total FROM research_queue';
-        const countParams: any[] = [];
+        const countParams: string[] = [];
         if (conditions.length > 0) {
             countSql += ' WHERE ' + conditions.join(' AND ');
         }
         const countResult = await db.get(countSql, countParams);
-        const total = countResult?.total || 0;
+        const total = (countResult?.total as number) || 0;
 
         res.json({ 
             success: true, 
