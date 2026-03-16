@@ -14,10 +14,29 @@ import AdsPowerClient from './adspower-client';
 import Database from './database';
 import OutreachEngine from './outreach-engine/outreach-engine';
 import SellerResearch, { DiscoveryOptions } from './seller-research';
-import { ResearchProgress, Seller } from './types';
+import { Seller, ResearchProgress, OutreachQueueItem, PendingApproval } from './types';
 
-// Type for query params
-type QueryParams = unknown[];
+// Import validation schemas and middleware
+import {
+  idParamSchema,
+  paginationQuerySchema,
+  sellerSchema,
+  sellerStatusSchema,
+  campaignSchema,
+  campaignUpdateSchema,
+  messageTemplateSchema,
+  messageTemplateUpdateSchema,
+  addSellersToCampaignSchema,
+  approveMessageSchema,
+  rejectMessageSchema,
+  researchStartSchema,
+  auditQuerySchema,
+  researchQueueQuerySchema,
+  validateBody,
+  validateQuery,
+  validateParams,
+  validateBodyAndParams
+} from './validations';
 
 // Load environment variables from .env file
 require('dotenv').config();
@@ -116,13 +135,13 @@ app.get('/api/stats', async (req: Request, res: Response) => {
 // ==================== Sellers ====================
 
 // Get all sellers
-app.get('/api/sellers', async (req: Request, res: Response) => {
+app.get('/api/sellers', validateQuery(paginationQuerySchema), async (req: Request, res: Response) => {
     try {
         const { status, limit = '100' } = req.query;
         let sellers: Seller[];
 
         if (status) {
-            sellers = await db.getSellersByStatus(status as string, parseInt(limit as string));
+            sellers = await db.getSellersByStatus(status, limit);
         } else {
             sellers = await db.all('SELECT * FROM sellers ORDER BY discovered_at DESC LIMIT ?', [parseInt(limit as string)]) as unknown as Seller[];
         }
@@ -134,30 +153,28 @@ app.get('/api/sellers', async (req: Request, res: Response) => {
 });
 
 // Get single seller - Enhanced with better error handling
-app.get('/api/sellers/:id', async (req: Request, res: Response) => {
+app.get('/api/sellers/:id', validateParams(idParamSchema), async (req: Request, res: Response) => {
     try {
-        const sellerId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-        console.log(`Fetching seller details for ID: ${sellerId}`);
+        const { id } = (req as any).params as { id: number };
+        console.log(`Fetching seller details for ID: ${id}`);
 
         // Try to find by numeric ID or seller_id string
         let seller: Record<string, unknown> | null = null;
 
         // First try numeric ID
-        if (!isNaN(parseInt(sellerId))) {
-            seller = await db.get('SELECT * FROM sellers WHERE id = ?', [parseInt(sellerId)]);
-        }
+        seller = await db.get('SELECT * FROM sellers WHERE id = ?', [id]);
 
-        // If not found, try seller_id string
+        // If not found, try seller_id string (converted to string)
         if (!seller) {
-            seller = await db.get('SELECT * FROM sellers WHERE seller_id = ?', [sellerId]);
+            seller = await db.get('SELECT * FROM sellers WHERE seller_id = ?', [String(id)]);
         }
 
         if (!seller) {
-            console.log(`Seller not found: ${sellerId}`);
+            console.log(`Seller not found: ${id}`);
             return res.status(404).json({
                 success: false,
                 error: 'Seller not found',
-                message: `No seller found with ID: ${sellerId}`
+                message: `No seller found with ID: ${id}`
             });
         }
 
@@ -174,7 +191,7 @@ app.get('/api/sellers/:id', async (req: Request, res: Response) => {
         try {
             const history = await db.all(
                 'SELECT * FROM outreach_log WHERE seller_id = ? ORDER BY contacted_at DESC',
-                [seller.id || sellerId]
+                [seller.id || id]
             );
             seller.history = history || [];
         } catch (historyError) {
@@ -195,7 +212,7 @@ app.get('/api/sellers/:id', async (req: Request, res: Response) => {
 });
 
 // Add or update seller
-app.post('/api/sellers', async (req: Request, res: Response) => {
+app.post('/api/sellers', validateBody(sellerSchema), async (req: Request, res: Response) => {
     try {
         const sellerData = req.body;
         const result = await db.insertSeller(sellerData);
@@ -209,15 +226,18 @@ app.post('/api/sellers', async (req: Request, res: Response) => {
 });
 
 // Update seller status
-app.patch('/api/sellers/:id/status', async (req: Request, res: Response) => {
+app.patch('/api/sellers/:id/status',
+  validateParams(idParamSchema),
+  validateBody(sellerStatusSchema),
+  async (req: Request, res: Response) => {
     try {
         const { status } = req.body;
-        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const { id } = (req as any).params as { id: number };
         await db.run('UPDATE sellers SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [status, id]);
 
-        await db.logAudit('seller_status_updated', 'seller', parseInt(id), 'system', { newStatus: status });
+        await db.logAudit('seller_status_updated', 'seller', id, 'system', { newStatus: status });
 
-        res.json({ success: true, data: { id: req.params.id, status } });
+        res.json({ success: true, data: { id, status } });
     } catch (error) {
         res.status(500).json({ success: false, error: (error as Error).message });
     }
@@ -243,9 +263,9 @@ app.get('/api/campaigns', async (req: Request, res: Response) => {
 });
 
 // Get single campaign
-app.get('/api/campaigns/:id', async (req: Request, res: Response) => {
+app.get('/api/campaigns/:id', validateParams(idParamSchema), async (req: Request, res: Response) => {
     try {
-        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const { id } = (req as any).params as { id: number };
         const campaign = await db.get('SELECT * FROM campaigns WHERE id = ?', [id]);
         if (!campaign) {
             return res.status(404).json({ success: false, error: 'Campaign not found' });
@@ -264,7 +284,7 @@ app.get('/api/campaigns/:id', async (req: Request, res: Response) => {
 });
 
 // Create campaign
-app.post('/api/campaigns', async (req: Request, res: Response) => {
+app.post('/api/campaigns', validateBody(campaignSchema), async (req: Request, res: Response) => {
     try {
         const result = await db.createCampaign(req.body);
 
@@ -277,30 +297,33 @@ app.post('/api/campaigns', async (req: Request, res: Response) => {
 });
 
 // Update campaign
-app.patch('/api/campaigns/:id', async (req: Request, res: Response) => {
+app.patch('/api/campaigns/:id',
+  validateParams(idParamSchema),
+  validateBody(campaignUpdateSchema),
+  async (req: Request, res: Response) => {
     try {
         const updates = req.body;
         const setClause = Object.keys(updates).map(k => `${k} = ?`).join(', ');
-        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const { id } = (req as any).params as { id: number };
         const values = [...Object.values(updates), id];
 
         await db.run(`UPDATE campaigns SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, values);
 
-        await db.logAudit('campaign_updated', 'campaign', parseInt(id), 'system', { updates });
+        await db.logAudit('campaign_updated', 'campaign', id, 'system', { updates });
 
-        res.json({ success: true, data: { id: req.params.id, ...updates } });
+        res.json({ success: true, data: { id, ...updates } });
     } catch (error) {
         res.status(500).json({ success: false, error: (error as Error).message });
     }
 });
 
 // Start campaign
-app.post('/api/campaigns/:id/start', async (req: Request, res: Response) => {
+app.post('/api/campaigns/:id/start', validateParams(idParamSchema), async (req: Request, res: Response) => {
     try {
-        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const { id } = (req as any).params as { id: number };
         await db.run('UPDATE campaigns SET status = ?, start_date = CURRENT_TIMESTAMP WHERE id = ?', ['active', id]);
 
-        await db.logAudit('campaign_started', 'campaign', parseInt(id), 'system', {});
+        await db.logAudit('campaign_started', 'campaign', id, 'system', {});
 
         res.json({ success: true, message: 'Campaign started' });
     } catch (error) {
@@ -309,12 +332,12 @@ app.post('/api/campaigns/:id/start', async (req: Request, res: Response) => {
 });
 
 // Stop campaign
-app.post('/api/campaigns/:id/stop', async (req: Request, res: Response) => {
+app.post('/api/campaigns/:id/stop', validateParams(idParamSchema), async (req: Request, res: Response) => {
     try {
-        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const { id } = (req as any).params as { id: number };
         await db.run('UPDATE campaigns SET status = ?, end_date = CURRENT_TIMESTAMP WHERE id = ?', ['stopped', id]);
 
-        await db.logAudit('campaign_stopped', 'campaign', parseInt(id), 'system', {});
+        await db.logAudit('campaign_stopped', 'campaign', id, 'system', {});
 
         res.json({ success: true, message: 'Campaign stopped' });
     } catch (error) {
@@ -347,9 +370,9 @@ app.get('/api/templates', async (req: Request, res: Response) => {
 });
 
 // Get single template
-app.get('/api/templates/:id', async (req: Request, res: Response) => {
+app.get('/api/templates/:id', validateParams(idParamSchema), async (req: Request, res: Response) => {
     try {
-        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const { id } = (req as any).params as { id: number };
         const template = await db.get('SELECT * FROM message_templates WHERE id = ?', [id]);
         if (!template) {
             return res.status(404).json({ success: false, error: 'Template not found' });
@@ -370,7 +393,7 @@ app.get('/api/templates/:id', async (req: Request, res: Response) => {
 });
 
 // Create template
-app.post('/api/templates', async (req: Request, res: Response) => {
+app.post('/api/templates', validateBody(messageTemplateSchema), async (req: Request, res: Response) => {
     try {
         const result = await db.createTemplate(req.body);
 
@@ -383,30 +406,33 @@ app.post('/api/templates', async (req: Request, res: Response) => {
 });
 
 // Update template
-app.patch('/api/templates/:id', async (req: Request, res: Response) => {
+app.patch('/api/templates/:id',
+  validateParams(idParamSchema),
+  validateBody(messageTemplateUpdateSchema),
+  async (req: Request, res: Response) => {
     try {
         const updates = req.body;
         const setClause = Object.keys(updates).map(k => `${k} = ?`).join(', ');
-        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const { id } = (req as any).params as { id: number };
         const values = [...Object.values(updates), id];
 
         await db.run(`UPDATE message_templates SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, values);
 
-        await db.logAudit('template_updated', 'template', parseInt(id), 'system', { updates });
+        await db.logAudit('template_updated', 'template', id, 'system', { updates });
 
-        res.json({ success: true, data: { id: req.params.id, ...updates } });
+        res.json({ success: true, data: { id, ...updates } });
     } catch (error) {
         res.status(500).json({ success: false, error: (error as Error).message });
     }
 });
 
 // Delete template (soft delete)
-app.delete('/api/templates/:id', async (req: Request, res: Response) => {
+app.delete('/api/templates/:id', validateParams(idParamSchema), async (req: Request, res: Response) => {
     try {
-        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const { id } = (req as any).params as { id: number };
         await db.run('UPDATE message_templates SET is_active = 0 WHERE id = ?', [id]);
 
-        await db.logAudit('template_deleted', 'template', parseInt(id), 'system', {});
+        await db.logAudit('template_deleted', 'template', id, 'system', {});
 
         res.json({ success: true, message: 'Template deleted' });
     } catch (error) {
@@ -427,15 +453,18 @@ app.get('/api/approvals', async (req: Request, res: Response) => {
 });
 
 // Approve message
-app.post('/api/approvals/:id/approve', async (req: Request, res: Response) => {
+app.post('/api/approvals/:id/approve',
+  validateParams(idParamSchema),
+  validateBody(approveMessageSchema),
+  async (req: Request, res: Response) => {
     try {
-        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-        const { approvedBy = 'system' } = req.body;
-        await db.updateApproval(parseInt(id), 'approved', approvedBy);
+        const { id } = (req as any).params as { id: number };
+        const { approvedBy } = req.body;
+        await db.updateApproval(id, 'approved', approvedBy);
 
         // TODO: Send the actual message via AdsPower profile
 
-        await db.logAudit('message_approved', 'outreach_log', parseInt(id), approvedBy, {});
+        await db.logAudit('message_approved', 'outreach_log', id, approvedBy, {});
 
         res.json({ success: true, message: 'Message approved' });
     } catch (error) {
@@ -444,13 +473,16 @@ app.post('/api/approvals/:id/approve', async (req: Request, res: Response) => {
 });
 
 // Reject message
-app.post('/api/approvals/:id/reject', async (req: Request, res: Response) => {
+app.post('/api/approvals/:id/reject',
+  validateParams(idParamSchema),
+  validateBody(rejectMessageSchema),
+  async (req: Request, res: Response) => {
     try {
-        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-        const { rejectedBy = 'system', reason } = req.body;
-        await db.updateApproval(parseInt(id), 'rejected', rejectedBy);
+        const { id } = (req as any).params as { id: number };
+        const { rejectedBy, reason } = req.body;
+        await db.updateApproval(id, 'rejected', rejectedBy);
 
-        await db.logAudit('message_rejected', 'outreach_log', parseInt(id), rejectedBy, { reason });
+        await db.logAudit('message_rejected', 'outreach_log', id, rejectedBy, { reason });
 
         res.json({ success: true, message: 'Message rejected' });
     } catch (error) {
@@ -459,14 +491,13 @@ app.post('/api/approvals/:id/reject', async (req: Request, res: Response) => {
 });
 
 // Add sellers to campaign (create outreach records)
-app.post('/api/campaigns/:id/sellers', async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/campaigns/:id/sellers',
+  validateParams(idParamSchema),
+  validateBody(addSellersToCampaignSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const { sellerIds, approvalStatus = 'pending' } = req.body;
-        const campaignId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-
-        if (!sellerIds || !Array.isArray(sellerIds) || sellerIds.length === 0) {
-            return res.status(400).json({ success: false, error: 'No seller IDs provided' });
-        }
+        const { sellerIds, approvalStatus } = req.body;
+        const { id: campaignId } = (req as any).params as { id: number };
 
         // Verify campaign exists
         const campaign = await db.get('SELECT * FROM campaigns WHERE id = ?', [campaignId]);
@@ -479,7 +510,7 @@ app.post('/api/campaigns/:id/sellers', async (req: Request, res: Response, next:
         if (campaign.message_template_id) {
             const template = await db.get('SELECT * FROM message_templates WHERE id = ?', [campaign.message_template_id]);
             if (template) {
-                messageContent = `Subject: ${template.subject || 'No subject'}\n\n${template.body}`;
+                messageContent = `Subject: ${template.subject || 'No subject'}\n\n${String(template.body)}`;
             }
         }
 
@@ -519,7 +550,7 @@ app.post('/api/campaigns/:id/sellers', async (req: Request, res: Response, next:
           VALUES (?, ?, ?, ?, ?)
         `, [sellerId, campaignId, 'pending', approvalStatus, personalizedMessage]);
 
-                results.push({ sellerId, success: true, id: result.id ?? undefined });
+                results.push({ sellerId, success: true, id: result.id! });
             } catch (error) {
                 results.push({ sellerId, success: false, error: (error as Error).message });
             }
@@ -527,7 +558,7 @@ app.post('/api/campaigns/:id/sellers', async (req: Request, res: Response, next:
 
         const successCount = results.filter(r => r.success).length;
 
-        await db.logAudit('sellers_added_to_campaign', 'campaign', parseInt(campaignId), 'system', {
+        await db.logAudit('sellers_added_to_campaign', 'campaign', campaignId, 'system', {
             count: successCount,
             total: sellerIds.length
         });
@@ -546,9 +577,9 @@ app.post('/api/campaigns/:id/sellers', async (req: Request, res: Response, next:
 // ==================== Audit Log ====================
 
 // Get audit log
-app.get('/api/audit', async (req: Request, res: Response) => {
+app.get('/api/audit', validateQuery(auditQuerySchema), async (req: Request, res: Response) => {
     try {
-        const { limit = '100', entityType, entityId } = req.query;
+        const { limit, entityType, entityId } = (req as any).query as { limit: number; entityType?: string; entityId?: number };
 
         let sql = 'SELECT * FROM audit_log';
         const params: (string | number)[] = [];
@@ -556,12 +587,12 @@ app.get('/api/audit', async (req: Request, res: Response) => {
 
         if (entityType && typeof entityType === 'string') {
             conditions.push('entity_type = ?');
-            params.push(entityType);
+            params.push(String(entityType));
         }
 
         if (entityId && typeof entityId === 'string') {
             conditions.push('entity_id = ?');
-            params.push(entityId);
+            params.push(Number(entityId));
         }
 
         if (conditions.length > 0) {
@@ -569,9 +600,9 @@ app.get('/api/audit', async (req: Request, res: Response) => {
         }
 
         sql += ' ORDER BY created_at DESC LIMIT ?';
-        params.push(parseInt(limit as string));
+        params.push(limit);
 
-        const logs = await db.all(sql, params);
+        const logs = await db.all(sql, params) as Record<string, unknown>[];
 
         // Parse details JSON
         logs.forEach((log: Record<string, unknown>) => {
@@ -593,12 +624,9 @@ app.get('/api/audit', async (req: Request, res: Response) => {
 // ==================== Seller Research ====================
 
 // Start seller research - Enhanced with AdsPower support
-app.post('/api/research/start', async (req: Request, res: Response) => {
+app.post('/api/research/start', validateBody(researchStartSchema), async (req: Request, res: Response) => {
     try {
         const { keywords, adspowerProfileId } = req.body;
-        if (!adspowerProfileId) {
-            return res.status(400).json({ success: false, error: 'AdsPower profile ID is required' });
-        }
 
         if (!sellerResearch) {
             return res.status(500).json({ success: false, error: 'Research engine not initialized' });
@@ -606,10 +634,6 @@ app.post('/api/research/start', async (req: Request, res: Response) => {
 
         if (sellerResearch.isActive()) {
             return res.status(400).json({ success: false, error: 'Research already in progress' });
-        }
-
-        if (!keywords || !Array.isArray(keywords) || keywords.length === 0) {
-            return res.status(400).json({ success: false, error: 'Invalid keywords provided' });
         }
 
         console.log(`Starting seller research for ${keywords.length} keywords...`);
@@ -693,11 +717,11 @@ app.post('/api/research/start', async (req: Request, res: Response) => {
 });
 
 // Get research queue status with pagination
-app.get('/api/research/queue', async (req: Request, res: Response) => {
+app.get('/api/research/queue', validateQuery(researchQueueQuerySchema), async (req: Request, res: Response) => {
     try {
-        const { page = '1', limit = '20', status } = req.query;
-        const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
-        
+        const { page, limit, status } = (req as any).query as { page: number; limit: number; status?: string };
+        const offset = (page - 1) * limit;
+
         let sql = 'SELECT * FROM research_queue';
         const params: (string | number)[] = [];
         const conditions: string[] = [];
@@ -712,27 +736,27 @@ app.get('/api/research/queue', async (req: Request, res: Response) => {
         }
 
         sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-        params.push(parseInt(limit as string), offset);
+        params.push(limit, offset);
 
         const queue = await db.all(sql, params);
 
         // Get total count for pagination
         let countSql = 'SELECT COUNT(*) as total FROM research_queue';
-        const countParams: string[] = [];
+        const countParams: (string | number)[] = [];
         if (conditions.length > 0) {
             countSql += ' WHERE ' + conditions.join(' AND ');
         }
         const countResult = await db.get(countSql, countParams);
         const total = (countResult?.total as number) || 0;
 
-        res.json({ 
-            success: true, 
+        res.json({
+            success: true,
             data: queue,
             pagination: {
-                page: parseInt(page as string),
-                limit: parseInt(limit as string),
+                page,
+                limit,
                 total,
-                pages: Math.ceil(total / parseInt(limit as string))
+                pages: Math.ceil(total / limit)
             }
         });
     } catch (error) {
