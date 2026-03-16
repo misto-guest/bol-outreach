@@ -111,7 +111,7 @@ class AdsPowerClient {
             }
             
             // Connect Puppeteer to AdsPower browser
-            const headers: any = {
+            const headers: Record<string, string> = {
                 Host: "localhost",
                 "X-Api-Key": this.config.apiKey
             };
@@ -127,7 +127,8 @@ class AdsPowerClient {
 
             return {
                 browser,
-                wsEndpoint: wsUrlModified
+                wsEndpoint: wsUrlModified,
+                puppeteerEndpoint: wsUrlModified
             };
             
         } catch (error) {

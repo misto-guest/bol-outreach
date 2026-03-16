@@ -6,6 +6,7 @@
 
 import express, { NextFunction, Request, Response } from 'express';
 import fs from 'fs';
+import { AddressInfo } from 'net';
 import path from 'path';
 
 // Import modules
@@ -93,8 +94,8 @@ async function startServer(): Promise<void> {
         // Try to start server on the configured port, with fallback
         const server = app.listen(Number(PORT), '0.0.0.0')
             .on('listening', () => {
-                const address = server.address();
-                const actualPort = (address as any).port;
+                const address = server.address() as AddressInfo;
+                const actualPort = address.port;
                 console.log(`\n🚀 Bol.com Seller Intelligence Platform running on http://0.0.0.0:${actualPort}`);
                 console.log(`📊 Dashboard: http://localhost:${actualPort}\n`);
             })
@@ -136,13 +137,13 @@ app.get('/api/stats', async (req: Request, res: Response) => {
 // Get all sellers
 app.get('/api/sellers', validateQuery(paginationQuerySchema), async (req: Request, res: Response) => {
     try {
-        const { status, limit } = (req as any).query as { status?: string; limit: number };
+        const { status, limit = '100' } = req.query;
         let sellers: Seller[];
 
         if (status) {
             sellers = await db.getSellersByStatus(status, limit);
         } else {
-            sellers = await db.all('SELECT * FROM sellers ORDER BY discovered_at DESC LIMIT ?', [limit]) as Seller[];
+            sellers = await db.all('SELECT * FROM sellers ORDER BY discovered_at DESC LIMIT ?', [parseInt(limit as string)]) as unknown as Seller[];
         }
 
         res.json({ success: true, data: sellers });
@@ -584,12 +585,12 @@ app.get('/api/audit', validateQuery(auditQuerySchema), async (req: Request, res:
         const params: (string | number)[] = [];
         const conditions: string[] = [];
 
-        if (entityType) {
+        if (entityType && typeof entityType === 'string') {
             conditions.push('entity_type = ?');
             params.push(String(entityType));
         }
 
-        if (entityId) {
+        if (entityId && typeof entityId === 'string') {
             conditions.push('entity_id = ?');
             params.push(Number(entityId));
         }
@@ -661,7 +662,7 @@ app.post('/api/research/start', validateBody(researchStartSchema), async (req: R
                     saveToDb: true,
                     deepSearch: false,
                     adsPowerProfileId: adspowerProfileId,
-                    onProgress: (progress) => {
+                    onProgress: (progress: ResearchProgress) => {
                         console.log(`Progress: ${progress.current}/${progress.total} - Found: ${progress.found} - Current: ${progress.keyword || 'N/A'}`);
                     }
                 };
@@ -727,7 +728,7 @@ app.get('/api/research/queue', validateQuery(researchQueueQuerySchema), async (r
 
         if (status) {
             conditions.push('status = ?');
-            params.push(status);
+            params.push(status as string);
         }
 
         if (conditions.length > 0) {

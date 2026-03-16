@@ -4,13 +4,14 @@
  * business hours enforcement, and message variations
  */
 
-import puppeteer, { Browser, Page } from 'puppeteer-core';
+import puppeteer, { Browser, ElementHandle, Page } from 'puppeteer-core';
 import Database from '../database';
 import AdsPowerClient from '../adspower-client';
 import ProfileRotator, { ProfileConfig } from './profile-rotator';
 import RateLimiter from './rate-limiter';
 import TimeWindowChecker from './time-window-checker';
 import MessageVariator from './message-variator';
+import { AdsPowerStartResult } from '../types';
 
 // Types for message and outreach data
 interface MessageData {
@@ -140,7 +141,7 @@ class OutreachEngine {
     /**
      * Start browser with next available profile
      */
-    private async startWithNextProfile(): Promise<{ browser: any; profile: ProfileConfig }> {
+    private async startWithNextProfile(): Promise<{ browser: AdsPowerStartResult; profile: ProfileConfig }> {
         const profile = this.profileRotator.getNextProfile();
 
         // Check if this profile can send
@@ -169,7 +170,7 @@ class OutreachEngine {
                 WHERE ol.approval_status = 'approved'
                 AND ol.status = 'pending'
                 ORDER BY ol.created_at ASC
-            `);
+            `) as unknown as MessageData[];
 
             console.log(`Found ${approvedMessages.length} approved messages to send`);
 
@@ -206,14 +207,14 @@ class OutreachEngine {
                     if (i < approvedMessages.length - 1) {
                         await this.delay(this.config.delayMs || 5000);
                     }
-                } catch (error: any) {
-                    console.error(`Failed to send message to ${message.shop_name}:`, error.message);
+                } catch (error: unknown) {
+                    console.error(`Failed to send message to ${message.shop_name}:`, (error as Error).message);
                     results.failed++;
 
                     // Update status to failed
                     await this.db.run(
                         'UPDATE outreach_log SET status = ?, error_message = ? WHERE id = ?',
-                        ['failed', error.message, message.id]
+                        ['failed', (error as Error).message, message.id]
                     );
                 }
             }
@@ -342,8 +343,8 @@ class OutreachEngine {
             } finally {
                 await browserPage.close();
             }
-        } catch (error: any) {
-            console.error(`Failed to send message to ${message.shop_name}:`, error.message);
+        } catch (error: unknown) {
+            console.error(`Failed to send message to ${message.shop_name}:`, (error as Error).message);
             return false;
         }
     }
@@ -363,7 +364,7 @@ class OutreachEngine {
                 '[data-test="contact-button"]'
             ];
 
-            let contactButton: any | null = null;
+            let contactButton: ElementHandle | null = null;
             for (const selector of contactSelectors) {
                 try {
                     contactButton = await page.$(selector);
@@ -377,8 +378,7 @@ class OutreachEngine {
             if (!contactButton) {
                 const buttons = await page.$$('button, a');
                 for (const button of buttons) {
-                    // @ts-ignore
-                    const text = await button.evaluate(el => el.textContent.toLowerCase());
+                    const text = await button.evaluate(el => el.textContent?.toLowerCase() || '');
                     if (text.includes('contact') || text.includes('bericht') || text.includes('vraag')) {
                         contactButton = button;
                         break;
@@ -399,7 +399,7 @@ class OutreachEngine {
                     '[data-test="message-field"]'
                 ];
 
-                let messageField: any | null = null;
+                let messageField: ElementHandle | null = null;
                 for (const selector of messageSelectors) {
                     messageField = await page.$(selector);
                     if (messageField) break;
@@ -445,8 +445,8 @@ class OutreachEngine {
             }
 
             return false;
-        } catch (error: any) {
-            console.error('Error finding contact form:', error.message);
+        } catch (error: unknown) {
+            console.error('Error finding contact form:', (error as Error).message);
             return false;
         }
     }
